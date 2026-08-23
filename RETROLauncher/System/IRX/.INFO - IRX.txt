@@ -1,4 +1,0 @@
-This is where you place the IRX modules that you intend to load after starting RETROLauncher.
-Enceladus will search this directory for IRX modules and attempt to load them.
-
-Supported extensions: .irx

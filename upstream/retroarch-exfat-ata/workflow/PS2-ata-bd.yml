@@ -1,0 +1,157 @@
+# Build RetroArch PS2 with the internal-ATA (exFAT) patch applied.
+#
+# Drop this file into .github/workflows/ of your RetroArch fork. It runs in the
+# same container the official CI uses, so nothing has to be installed locally:
+# push, wait, download the ELF from the run's Artifacts section.
+#
+# Two jobs:
+#   build  - RetroArch with the static dummy core. Enough to verify the fix:
+#            boot it and open the file browser; the internal disk should be
+#            listed as massN: next to your USB stick.
+#   core   - real emulator cores end to end, to confirm a playable build.
+#
+# Trigger it by hand from the Actions tab (workflow_dispatch), or on push.
+
+name: CI PS2 (ata_bd / internal exFAT)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  # Fork of ps2_drivers carrying the ata_bd driver.
+  # Point this at your own fork once you have pushed the patch there.
+  PS2_DRIVERS_REPO: https://github.com/fjtrujy/ps2_drivers.git
+  PS2_DRIVERS_REF: master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: reallibretroretroarch/libretro-build-ps2:latest
+      options: --user root
+
+    steps:
+    - uses: actions/checkout@v3
+
+    # ata_bd.irx ships with ps2sdk since 2023. If the container predates that,
+    # everything below would silently fall back to a build without the fix, so
+    # fail here instead with a message that says what to do.
+    - name: Check that ps2sdk provides ata_bd.irx
+      run: |
+        set -e
+        : "${PS2SDK:?PS2SDK is not set in this container}"
+        if [ ! -f "$PS2SDK/iop/irx/ata_bd.irx" ]; then
+          echo "::error::$PS2SDK/iop/irx/ata_bd.irx is missing."
+          echo "The ps2sdk in this container is too old. Rebuild ps2sdk from"
+          echo "https://github.com/ps2dev/ps2sdk (iop/dev9/ata_bd is in SUBDIRS)"
+          echo "or use a newer ps2dev container image."
+          exit 1
+        fi
+        ls -l "$PS2SDK/iop/irx/ata_bd.irx"
+
+    - name: Rebuild ps2_drivers with the ata_bd driver
+      run: |
+        set -e
+        command -v cmake >/dev/null || (apt-get update && apt-get install -y cmake)
+        git clone --depth 1 -b "$PS2_DRIVERS_REF" "$PS2_DRIVERS_REPO" /tmp/ps2_drivers
+        cd /tmp/ps2_drivers
+        # If your fork already contains the change this is a no-op; the patch is
+        # applied here only so the workflow also works against upstream.
+        if [ -f "$GITHUB_WORKSPACE/upstream/retroarch-exfat-ata/patches/ps2_drivers-ata_bd.patch" ] \
+           && ! test -f src/ps2_ata_bd_driver.c; then
+          git apply "$GITHUB_WORKSPACE/upstream/retroarch-exfat-ata/patches/ps2_drivers-ata_bd.patch"
+        fi
+        test -f src/ps2_ata_bd_driver.c
+        cmake -S . -B build -DBUILD_SAMPLES=OFF
+        cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
+        cmake --install build
+        # The new header must be where RetroArch will look for it.
+        test -f "$PS2SDK/ports/include/ps2_ata_bd_driver.h"
+
+    - name: Compile Salamander
+      run: |
+        make -f Makefile.ps2.salamander -j$(getconf _NPROCESSORS_ONLN) clean
+        make -f Makefile.ps2.salamander -j$(getconf _NPROCESSORS_ONLN) release
+
+    - name: Compile RetroArch (dummy core)
+      run: |
+        make -f Makefile.ps2 -j$(getconf _NPROCESSORS_ONLN) clean
+        make -f Makefile.ps2 -j$(getconf _NPROCESSORS_ONLN) HAVE_STATIC_DUMMY=1 info release
+
+    - name: Get short SHA
+      id: slug
+      run: echo "sha8=$(echo ${GITHUB_SHA} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: RA-PS2-atabd-dummy-${{ steps.slug.outputs.sha8 }}
+        path: |
+          raboot.elf
+          retroarchps2.elf
+
+  core:
+    runs-on: ubuntu-latest
+    needs: build
+    container:
+      image: reallibretroretroarch/libretro-build-ps2:latest
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fceumm
+            repo: https://github.com/libretro/libretro-fceumm.git
+            makefile: Makefile.libretro
+          - name: genesis_plus_gx
+            repo: https://github.com/libretro/Genesis-Plus-GX.git
+            makefile: Makefile.libretro
+          - name: snes9x2005
+            repo: https://github.com/libretro/snes9x2005.git
+            makefile: Makefile
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Rebuild ps2_drivers with the ata_bd driver
+      run: |
+        set -e
+        command -v cmake >/dev/null || (apt-get update && apt-get install -y cmake)
+        git clone --depth 1 -b "$PS2_DRIVERS_REF" "$PS2_DRIVERS_REPO" /tmp/ps2_drivers
+        cd /tmp/ps2_drivers
+        if [ -f "$GITHUB_WORKSPACE/upstream/retroarch-exfat-ata/patches/ps2_drivers-ata_bd.patch" ] \
+           && ! test -f src/ps2_ata_bd_driver.c; then
+          git apply "$GITHUB_WORKSPACE/upstream/retroarch-exfat-ata/patches/ps2_drivers-ata_bd.patch"
+        fi
+        cmake -S . -B build -DBUILD_SAMPLES=OFF
+        cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
+        cmake --install build
+
+    - name: Build core ${{ matrix.name }}
+      run: |
+        set -e
+        git clone --depth 1 "${{ matrix.repo }}" /tmp/core
+        cd /tmp/core
+        make -f "${{ matrix.makefile }}" platform=ps2 -j"$(getconf _NPROCESSORS_ONLN)"
+        # Cores emit either libretro_ps2.a or <name>_libretro_ps2.a
+        find . -name '*libretro_ps2.a' -exec cp {} "$GITHUB_WORKSPACE/libretro_ps2.a" \;
+        test -f "$GITHUB_WORKSPACE/libretro_ps2.a"
+
+    - name: Link RetroArch with the core
+      run: |
+        make -f Makefile.ps2 -j$(getconf _NPROCESSORS_ONLN) clean
+        make -f Makefile.ps2 -j$(getconf _NPROCESSORS_ONLN) release
+        mv retroarchps2.elf "${{ matrix.name }}_libretro_ps2.elf"
+
+    - name: Get short SHA
+      id: slug
+      run: echo "sha8=$(echo ${GITHUB_SHA} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: RA-PS2-atabd-${{ matrix.name }}-${{ steps.slug.outputs.sha8 }}
+        path: ${{ matrix.name }}_libretro_ps2.elf

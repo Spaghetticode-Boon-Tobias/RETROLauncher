@@ -1,0 +1,40 @@
+To Transfer on MC (for Exfat device)  -  demarrage sans cle USB
+==============================================================
+
+Pour lancer RETROLauncher DIRECTEMENT depuis le disque interne exFAT, via la
+carte memoire. 30 Ko sur mc0, aucune cle USB.
+
+Pourquoi : au demarrage Enceladus recharge sa pile USB (sans ata_bd) et le
+disque disparait -> "end of builtin script reached". Mais lance AVEC UN
+ARGUMENT, Enceladus execute ce script, et la carte memoire reste lisible. Le
+script monte le disque puis lui cede la main.
+
+Installation
+------------
+1. Copier le dossier RETROBOOT sur la carte :   mc0:/RETROBOOT/
+
+2. *** OBLIGATOIRE *** : l'entree du menu doit passer un ARGUMENT a l'ELF.
+   Sans cet argument, Enceladus lance son boot integre, ne trouve pas le
+   disque, et affiche l'ecran rouge "end of builtin script reached" ligne 16.
+
+   Avec R3Configurator (ou en editant mc0:/SYS-CONF/OSDMENU.CNF a la main),
+   sur l'entree qui lance RETROLauncher, mettre dans le champ "arg", texto :
+
+       mc0:/RETROBOOT/boot.lua
+
+   Dans OSDMENU.CNF cela donne, avec le meme numero d'entree partout :
+
+       name_OSDSYS_ITEM_1  = RETROLauncher
+       path1_OSDSYS_ITEM_1 = mass0:/RETROLauncher/RETROLauncher.elf
+       arg_OSDSYS_ITEM_1   = mc0:/RETROBOOT/boot.lua
+
+   Attention : si un path2_/path3_ de secours pointe vers l'ELF d'une cle,
+   il peut gagner et il ne recevra pas l'argument.
+
+3. Le disque doit porter son marqueur (deja fait sur E:) :
+     Roms/!Retrolauncher/internal-ata-disk.flag
+
+Si ton lanceur ne peut PAS passer d'argument a un ELF, cette voie est fermee :
+utilise alors une cle USB avec le paquet "To Transfer on USB or Exfat".
+
+Journal : mc0:/RETROBOOT/BOOT_LOG.txt

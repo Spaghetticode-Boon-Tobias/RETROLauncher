@@ -1,7 +1,0 @@
-RETROLauncher - carga de imagenes
-=================================
-
-Si este fichero termina en "-> cargando", la consola se colgo
-al abrir esa imagen. Convertirla o reducirla resuelve el caso.
-
-screen ok       -> mass1:/ART/SLES_553.47_SCR.png
