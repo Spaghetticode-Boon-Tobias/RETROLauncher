@@ -1,0 +1,158 @@
+LibretroPS2Files - the RetroArch module
+=======================================
+
+    This folder belongs on a USB stick, not on the internal drive.
+
+That is not a preference, it is the only arrangement that works with official
+cores. A core starts by calling SifIopReset: its ELF is already in RAM, but the
+IOP is wiped and the internal drive stops existing for it - no ata_bd is ever
+reloaded. If cores/, info/ and retroarch/ sit on that drive, RetroArch has
+nothing left to read and dies before drawing a frame. Even raboot.elf fails: it
+cannot find cores/ and exits immediately.
+
+This is a known limitation, not something specific to this launcher. The author
+of PSBBN gives the same workaround in issue #448 of his project: the ELF wherever
+you like, everything else on USB.
+
+So put it at
+
+    <USB stick>/RETROLauncher/LibretroPS2Files/
+
+The launcher looks for it on a USB stick or memory card first, and only falls
+back to the internal drive if there is nowhere else - where it will work with
+cores rebuilt with the ata_bd patch, and only with those. ROMs can stay on the
+internal drive: the launcher copies the one you are launching across, along with
+its saves, and brings the saves back afterwards.
+
+---
+
+Drop a nightly in here and it works. Nothing to rename, nothing to move.
+
+    https://buildbot.libretro.com/nightly/playstation/ps2/
+
+The archive gives you three things - raboot.elf, cores/ and info/. Unzip them
+straight into this folder.
+
+    LibretroPS2Files/
+        raboot.elf              from the nightly
+        cores/                  from the nightly
+        info/                   from the nightly
+        retroarch/              the configuration, see below
+
+Why retroarch/ has to be exactly there
+--------------------------------------
+It is the one rigid thing in the whole arrangement, and it is compiled into the
+binary. When a core starts, RetroArch takes its own directory, goes ONE LEVEL UP,
+and looks for "retroarch/retroarch.cfg" there:
+
+    create_path_names(), frontend/drivers/platform_ps2.c
+        strlcpy(user_path + _len, "retroarch", ...);
+        fill_pathname_join(g_defaults.path_config, user_path, ...);
+
+So a core in "LibretroPS2Files/cores/" makes "LibretroPS2Files/" the root, and
+"LibretroPS2Files/retroarch/" is where its config lives. Move that folder and
+RetroArch starts with empty defaults and finds nothing.
+
+Everything else - where the cores are, where the BIOS are, where saves go - the
+launcher writes explicitly into the config, so those can sit anywhere. But it
+can only do that once RetroArch has found the config. Hence the one fixed point.
+
+A nightly does not ship retroarch/, and it does not touch it either - so
+unzipping a new nightly over this folder is safe.
+
+One configuration, and only one
+------------------------------
+    retroarch/retroarch.cfg            everything
+    retroarch/config/<Core>/           per-core overrides
+    retroarch/config/remaps/<Core>/    per-core button remaps
+
+There used to be a second copy of retroarch.cfg, in a DefaultCFGs/ folder, that
+this one was rebuilt from. It is gone. Two files with the same job is an
+invitation for them to disagree, and it bought nothing: if retroarch.cfg is
+missing, RetroArch writes itself a complete one from its own built-in defaults -
+which is exactly what a factory copy was imitating - and the launcher reimposes
+its own keys on top at the next game launch.
+
+retroarch.cfg is not hand-written either. It is a real config, produced by
+RetroArch 1.22.2 on a PS2 and then had its paths realigned. That matters: a
+config RetroArch wrote itself contains every key it knows about, at the value it
+actually defaults to, which no hand-written file gets right for long.
+
+config/ ships empty. It used to carry a per-core override for every system -
+aspect ratio, audio rate, number of players - inherited from the original
+project, and they did more harm than good: an active override makes RetroArch
+refuse to save anything ("[Overrides] Not saving. Overrides active."), and
+config/Gambatte/gbc.cfg was quietly turning off the save-state sorting, which is
+why Zelda DX put its .srm in Saves/gbc/ and its states loose in SaveStates/.
+One retroarch.cfg, configured on the console, is the whole configuration.
+
+Anything RetroArch writes there itself - the .opt files with core options - stays
+and is ignored by git.
+
+raboot.elf is copied to the stick too, once. The launcher never uses it, it calls
+the core directly. It is there so RetroArch can be opened from uLaunchELF without
+going through RETROLauncher, which is how an installation gets checked when
+something goes wrong.
+
+"Reset configuration" in the launcher menu therefore deletes retroarch.cfg and
+config/ rather than restoring them from anywhere. RetroArch rebuilds. What is
+lost is the per-core overrides shipped with the project, which is the price of
+not keeping a second copy of everything.
+
+    The copy on the USB stick is the live one.
+
+RetroArch saves its config every time it exits, on the stick. The copy sitting in
+the project folder on the internal drive is only the seed: it is read once, when
+the launcher has to deploy an installation, and never again as long as a working
+one exists on the stick. Settings changed on the console live on the stick alone.
+Copy retroarch.cfg back if you want to keep them.
+
+Testing RetroArch on its own
+----------------------------
+Launch a core directly from uLaunchELF, for instance
+
+    cores/fceumm_libretro_ps2.elf
+
+then Load Content and browse. That is the cleanest way to check the install
+without the launcher in the way.
+
+raboot.elf is RetroArch's Salamander. It reads retroarch-salamander.cfg to know
+which core to load; with no cfg it picks one from cores/, and if cores/ is not
+one level up from it, it fails immediately. Note that the launcher never uses
+it: the block that hands the game to the core sits inside "#ifndef IS_SALAMANDER",
+so Salamander always calls the core with zero arguments and can never start a
+ROM - only open the menu.
+
+Saves and BIOS
+--------------
+Not here. Saves go to Saves/<console>/ and SaveStates/<console>/ at the launcher
+root, next to Roms/; BIOS stay in Bios/. The launcher points RetroArch at all
+three before every game. retroarch/savefiles, retroarch/savestates and
+retroarch/system therefore stay empty - if something turns up in them, the
+launcher did not get to rewrite the config. See ".INFO - Structure.txt" one
+level up.
+
+Watch out for one thing when reading a save path in RetroArch's log:
+
+    Redirecting save file to ".../savefiles/Snes9x 2002/Mario.srm"
+
+A core name in the path means sort_savefiles_enable was on, which is wrong here:
+PicoDrive serves Megadrive, Master System, Game Gear and SG-1000, and would pour
+all four into one folder. The launcher forces that key off and groups by content
+folder instead, which gives ".../Saves/snes/Mario.srm".
+
+Which core serves which system
+------------------------------
+    picodrive_libretro_ps2.elf      Megadrive, Master System, Game Gear, SG-1000
+    fceumm_libretro_ps2.elf         Famicom / NES
+    quicknes_libretro_ps2.elf       Famicom / NES, alternative
+    snes9x2002_libretro_ps2.elf     Super Famicom / SNES
+    gambatte_libretro_ps2.elf       Game Boy, Game Boy Color
+    tgbdual_libretro_ps2.elf        Game Boy, Game Boy Color, alternative
+    gpsp_libretro_ps2.elf           Game Boy Advance
+    stella2014_libretro_ps2.elf     Atari 2600
+    handy_libretro_ps2.elf          Atari Lynx
+    race_libretro_ps2.elf           Neo Geo Pocket
+
+Any other core here is offered too, as long as its ".info" declares an extension
+the system actually uses. That is what info/ is read for.

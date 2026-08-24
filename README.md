@@ -146,6 +146,33 @@ If I've overlooked something or made a mistake, I apologize.
 
 RETROLauncher we all do it.
 
+---
+
+**Fork - internal exFAT HDD support:**  
+This fork adds support for reading the PS2 internal hard disk formatted in exFAT,
+by loading the `dev9` and `ata_bd` IOP drivers at startup, plus the interface and
+path changes that go with it. See `CHANGES.md` for the full list.
+
+- soaresden GitHub: <https://github.com/soaresden>
+- Upstream project by Spaghetticode / Boon Tobias, on which everything here is based.
+
+**ATA / DEV9 IOP drivers:**  
+`ata_bd.irx` and `dev9_ns.irx` are taken from Neutrino, already bundled with
+RETROLauncher, and are used unmodified.
+
+- Neutrino by Maximus32 (Rick Gaiser): <https://github.com/rickgaiser/neutrino>
+- License: Academic Free License "AFL" v. 3.0
+
+**Enceladus:**  
+This fork also runs on the current Enceladus build, which is what makes IOP module
+loading possible. `System.fileXioMount` and the `IOP` table come from the work of
+Matias Israelson (israpps) on that project.
+
+- Enceladus: <https://github.com/DanielSant0s/Enceladus>
+- israpps: <https://israpps.github.io/>
+
+---
+
 **Thank you for using RETROLauncher / Boon Tobias.**
 
 --------------------------------------------------------------------------

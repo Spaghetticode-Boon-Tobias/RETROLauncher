@@ -1,9 +1,0 @@
-Here are the ROMS for Atari 2600.
-RETROLauncher will look in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Atari 2600/Example.a26" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Atari 2600/Example.bin" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Atari 2600/Example.zip" - It will find it and list it.
-
-Supported extensions: .a26 .bin .zip

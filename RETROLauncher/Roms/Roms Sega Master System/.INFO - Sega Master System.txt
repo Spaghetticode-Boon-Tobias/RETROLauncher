@@ -1,8 +1,0 @@
-Here are the ROMS for Sega Master System.
-RETROLauncher will look in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Sega Master System/Example.sms" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Sega Master System/Example.zip" - It will find it and list it.
-
-Supported extensions: .sms .zip

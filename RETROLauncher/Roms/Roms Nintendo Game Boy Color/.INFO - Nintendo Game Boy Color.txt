@@ -1,8 +1,0 @@
-Here are the ROMs for Nintendo Game Boy Color.
-RETROLauncher will search in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy Color/Example.gbc" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy Color/Example.zip" - It will find it and list it.
-
-Supported extensions: .gbc .zip

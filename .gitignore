@@ -1,0 +1,109 @@
+# Paths follow the two-folder layout:
+#   To Transfer on MC/            -> memory card, boot shim
+#   To Transfer on USB or Exfat/  -> the launcher itself, plus POPS
+
+# The journal written by the console. One file now - it used to be five
+# (BDM_REPORT, BOOT_LOG, LAUNCH_LOG, MEDIA_LOG, PREBOOT_LOG), and the old names
+# stay listed so an existing clone does not suddenly want to commit them.
+RETROLauncher.log
+BDM_REPORT.txt
+LAUNCH_LOG.txt
+MEDIA_LOG.txt
+PREBOOT_LOG.txt
+BOOT_LOG.txt
+exfatdb.json
+
+# Local backups and sync databases
+*.orig
+*.bak
+*.2025
+sync.ffs_db
+
+# Build artefacts
+To Transfer on USB or Exfat/RETROLauncher/enceladus.elf
+
+# Personal content: ROMs, artwork, titles. The folder STRUCTURE is kept, so a
+# fresh clone still gets the layout - only what sits inside is ignored.
+To Transfer on USB or Exfat/RETROLauncher/Roms/*/*
+!To Transfer on USB or Exfat/RETROLauncher/Roms/*/.INFO*
+!To Transfer on USB or Exfat/RETROLauncher/Roms/*/media/
+To Transfer on USB or Exfat/RETROLauncher/Roms/*/media/*
+!To Transfer on USB or Exfat/RETROLauncher/Roms/*/media/*/
+To Transfer on USB or Exfat/RETROLauncher/Roms/*/media/*/*
+!To Transfer on USB or Exfat/RETROLauncher/Roms/*/media/*/.INFO*
+
+# Saves and save states belong to the player. One folder per console, mirroring
+# Roms/ - RetroArch sorts by the content folder, so Roms/megadrive/Sonic.gen
+# saves to Saves/megadrive/Sonic.srm. The folder structure is kept, the contents
+# are not.
+To Transfer on USB or Exfat/RETROLauncher/Saves/*/*
+!To Transfer on USB or Exfat/RETROLauncher/Saves/*/.INFO*
+To Transfer on USB or Exfat/RETROLauncher/SaveStates/*/*
+!To Transfer on USB or Exfat/RETROLauncher/SaveStates/*/.INFO*
+*.state
+*.srm
+*.lpl
+*.opt
+*.lrtl
+
+# ...except the factory defaults, which ARE ours to ship: they contain .opt and
+# .rmp core overrides and are what "reset configuration" restores.
+!To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/defaults/**
+
+# BIOS and POPStarter binaries are not redistributable
+To Transfer on USB or Exfat/RETROLauncher/Bios/*
+!To Transfer on USB or Exfat/RETROLauncher/Bios/.INFO*
+
+# RetroArch is a self-contained module: drop an unzipped nightly into
+# LibretroPS2Files/ and that is the whole installation. The nightly's own files
+# are not ours to ship.
+To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/cores/
+To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/info/
+To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/raboot.elf
+
+# retroarch/ is where the ONE configuration lives. There is no factory copy of it
+# any more, so retroarch.cfg and the per-core overrides have to be tracked - they
+# are the only copy. The rest of the folder is written by RetroArch at runtime:
+# assets, playlists, logs, thumbnails, its own savefiles/savestates (which stay
+# empty, since the launcher points it at Saves/ and SaveStates/ instead).
+#
+# Note the trailing star: "retroarch/" as a directory rule would stop git from
+# ever looking inside, and the negations below would never be reached.
+To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/retroarch/*
+!To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/retroarch/retroarch.cfg
+!To Transfer on USB or Exfat/RETROLauncher/LibretroPS2Files/retroarch/config/
+
+# POPS binaries and PS1 images
+To Transfer on USB or Exfat/POPS/IOPRP252.IMG
+To Transfer on USB or Exfat/POPS/POPS.ELF
+To Transfer on USB or Exfat/POPS/POPS.PAK
+To Transfer on USB or Exfat/POPS/POPS_IOX.PAK
+To Transfer on USB or Exfat/POPS/POPSTARTER.ELF
+To Transfer on USB or Exfat/POPS/PATCH_*.BIN
+To Transfer on USB or Exfat/POPS/TROJAN_*.BIN
+*.VCD
+
+# POPStarter binaries
+To Transfer on USB or Exfat/RETROLauncher/POPStarter/POPSTARTER.ELF
+To Transfer on USB or Exfat/RETROLauncher/POPStarter/PATCH_*.BIN
+To Transfer on USB or Exfat/RETROLauncher/POPStarter/TROJAN_*.BIN
+
+# Local video-mode and language markers, written by the launcher
+To Transfer on USB or Exfat/RETROLauncher/System/Defaults/NTSC
+To Transfer on USB or Exfat/RETROLauncher/System/Defaults/PAL
+To Transfer on USB or Exfat/RETROLauncher/System/Defaults/ENG
+To Transfer on USB or Exfat/RETROLauncher/System/Defaults/POR
+To Transfer on USB or Exfat/RETROLauncher/System/Defaults/SPA
+
+# Tooling
+HelperScripts/__pycache__/
+HelperScripts/PopsDelay.py
+/To Transfer on USB or Exfat/RETROLauncher/POPStarter
+MESSAGE-TO-BOON.md
+MESSAGE-TO-BOON.md
+/HelperScripts/Converted
+MESSAGE-TO-BOON.md
+To Transfer on USB or Exfat/RETROLauncher/SyncGithubFolder-HDD.ffs_gui
+To Transfer on USB or Exfat/RETROLauncher/SyncGithubFolder-HDD.ffs_gui
+To Transfer on USB or Exfat/RETROLauncher/SyncGithubFolder-HDD.ffs_gui
+*.ffs_gui

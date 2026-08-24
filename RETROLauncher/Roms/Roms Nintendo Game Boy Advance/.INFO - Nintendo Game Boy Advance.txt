@@ -1,9 +1,0 @@
-Here are the ROMs for Nintendo Game Boy Advance.
-RETROLauncher will search in the root of this directory.
-".zip" compressed ROMs must be extracted as it does not support them.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy Advance/Example.gba" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy Advance/Example.bin" - It will find it and list it.
-
-Supported extensions: .gba .bin

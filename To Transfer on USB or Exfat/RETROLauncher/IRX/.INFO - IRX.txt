@@ -1,0 +1,33 @@
+IRX - IOP drivers
+=================
+
+Every IOP driver the launcher ships, in one folder.
+
+    ata_bd.irx      internal ATA disk as a BDM device -> massN:
+    dev9_ns.irx     the expansion bay the ATA port sits behind
+    usbd.irx        POPStarter's USB driver
+    usbhdfsd.irx    POPStarter's FAT driver
+
+Two different jobs, one folder
+------------------------------
+The first two are loaded into the IOP at boot, in the order listed in
+IRX_ORDEN (system.lua), so that RETROLauncher can see an internal exFAT disk.
+Enceladus reloads its own BDM stack at startup WITHOUT ata_bd, which is exactly
+why the disk has to be re-attached here.
+
+The last two are never loaded. They are copied to mc0:/POPSTARTER/ when
+POPStarter needs them - and copied in LOWERCASE, which is the whole point:
+POPStarter opens them by lowercase name and reports "No POPS directory" if it
+finds USBD.IRX instead of usbd.irx. That single detail cost an evening.
+
+They are listed in IRX_IGNORAR so the boot scanner skips them: Enceladus has
+already loaded its own USB stack, and loading a second one would be at best
+useless.
+
+Adding a driver
+---------------
+Drop the .irx here and it is loaded at boot, after the ones in IRX_ORDEN. To
+ship one without loading it, add its name to IRX_IGNORAR in system.lua.
+
+Neutrino keeps its own modules in Neutrino/modules/ - those belong to its
+package and it looks for them there, so leave them where they are.

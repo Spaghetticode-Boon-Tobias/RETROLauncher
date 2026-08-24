@@ -1,0 +1,65 @@
+EmulationStation / Batocera folder layout
+=========================================
+
+This fork accepts short system folder names, the ones used by Batocera,
+Recalbox and EmulationStation, in addition to the original RETROLauncher
+structure. Drop your ROMs in the matching folder below.
+
+    Games/megadrive        Sega Megadrive / Genesis
+    Games/mastersystem     Sega Master System
+    Games/gamegear         Sega Game Gear
+    Games/sg1000           Sega SG-1000
+    Games/nes              Nintendo Famicom / NES
+    Games/snes             Nintendo Super Famicom / SNES
+    Games/gb               Nintendo Game Boy
+    Games/gbc              Nintendo Game Boy Color
+    Games/gba              Nintendo Game Boy Advance
+    Games/atari2600        Atari 2600
+    Games/lynx             Atari Lynx
+    Games/ngp              Neo Geo Pocket
+
+Alternative names are also accepted: "genesis" and "md" for Megadrive,
+"sms", "gg", "famicom", "fds", "sfc", "supernintendo", "gameboy",
+"gameboycolor", "gameboyadvance", "atarilynx", "sg-1000", "ngpc",
+"neogeopocket".
+
+The original long names still work too, either here or in "Roms/":
+
+    Games/Roms Sega Megadrive
+    Roms/Roms Sega Megadrive
+
+Searching happens on every root at once: the boot device and, when it is
+mounted, the internal exFAT disk. A "roms/" folder at the root of a drive is
+scanned as well, which is where Batocera puts it.
+
+
+PlayStation 1 and 2
+-------------------
+
+These two are NOT read from here.
+
+- PS2 ISOs go in "Roms/ISOs PlayStation 2", or in "DVD/" and "CD/" at the root
+  of a drive. A "Games/ps2" folder would duplicate that for nothing.
+
+- PS1 games go in "Roms/CUEs PlayStation 1", together with "ember.elf" and
+  "bios.bin". Ember only receives the file name as an argument and looks for it
+  in its own directory, so the .cue must sit next to the emulator. A separate
+  "Games/psx" folder cannot work.
+
+
+Artwork and real game titles
+----------------------------
+
+"HelperScripts/MediaCopier.py" reads the gamelist.xml of a Batocera, Recalbox
+or EmulationStation install, then:
+
+- copies the artwork of your choice (image, boxart, screenshot, cartridge...)
+  next to each ROM, as a .png with the same name,
+- writes a "titles.txt" in each folder, one "file|title" pair per line.
+
+RETROLauncher reads that "titles.txt" and displays the real game title instead
+of the file name. The file name itself is never changed, so launching, saves
+and configurations are unaffected.
+
+Hold CIRCLE in the list to see where each entry comes from and its format,
+e.g. "[ATA].zip" for a compressed ROM on the internal disk.

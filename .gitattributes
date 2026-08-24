@@ -1,0 +1,3 @@
+# Les fichiers du projet sont en CRLF. Sans cela, git presente les 9000 lignes de
+# funciones.lua comme modifiees a chaque changement de plateforme.
+* -text

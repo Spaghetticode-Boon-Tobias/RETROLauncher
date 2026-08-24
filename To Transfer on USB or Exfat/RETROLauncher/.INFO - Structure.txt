@@ -1,0 +1,495 @@
+RETROLauncher - folder layout
+=============================
+
+One folder per module, all at the root. Each can be updated on its own by
+replacing its folder; nothing else has to be touched.
+
+    RETROLauncher.elf       the launcher
+    System/                 its code, its media, its settings
+
+    LibretroPS2Files/       RetroArch      unzip a nightly here
+    Neutrino/               PS2 ISO loader
+    OPL/                    PS2 ISO loader, alternative
+    POPStarter/             PS1 (.VCD)
+    uLaunchELF/             file manager
+
+    IRX/                    IOP drivers
+    Bios/                   BIOS files and the blank VMC template
+    Roms/                   games and artwork
+    Saves/  SaveStates/     one folder per console, matching Roms/
+
+Saves
+-----
+    Roms/megadrive/Sonic.gen   ->   Saves/megadrive/Sonic.srm
+
+RetroArch groups saves by the folder the game came from
+(sort_savefiles_by_content_enable), and the ROM folders are named after the
+console, so the two trees mirror each other with nothing to configure.
+
+Forced settings
+---------------
+Before every game, the launcher rewrites a handful of keys in
+LibretroPS2Files/retroarch/retroarch.cfg. RetroArch saves its config on exit and
+the user can change things from its menu, so these are re-applied each time
+rather than set once:
+
+    savefile_directory   -> Saves/            absolute, rebuilt from where the
+    savestate_directory  -> SaveStates/       launcher currently sits
+    system_directory     -> Bios/             RetroArch reads the BIOS in place
+    savefiles_in_content_dir  = false          not next to the ROM
+    savestates_in_content_dir = false
+    sort_savefiles_enable     = false          not grouped by core - PicoDrive
+    sort_savestates_enable    = false          would merge four Sega consoles
+    sort_savefiles_by_content_enable  = true   grouped by console folder
+    sort_savestates_by_content_enable = true
+
+    video_refresh_rate, crt_video_refresh_rate, current_resolution_id,
+    vrr_runloop_enable
+
+Those last four are, near enough, the whole difference between an NTSC and a PAL
+setup. The launcher used to carry twenty-four full retroarch.cfg files - twelve
+consoles times two video modes - to express them. There is one file now, and the
+video mode is applied at launch.
+
+aspect_ratio_index and video_scale_integer used to be forced too, and are not
+any more. They are not properties of a video standard, they are a preference:
+forcing them undid, at every launch, whatever had been chosen from RetroArch's
+own menu. Their value lives in retroarch/retroarch.cfg, which is the only
+configuration file in the project - there is no factory copy of it to keep in
+sync. See the .INFO in LibretroPS2Files/.
+
+Also forced, and easy to miss: content_favorites_path and the four
+content_*_history_path keys. Those are file paths RetroArch stores separately
+from playlist_directory, so moving the playlists folder does not move them - they
+would keep pointing at wherever the previous install was.
+
+One key does not fit that pattern and is left alone: video_vsync was "false" in
+PAL for Neo Geo Pocket, Game Boy, Game Boy Color and Super Famicom only, and
+"true" everywhere else. That is per-console AND per-video-mode at once, which
+the table cannot express. If one of those four tears in PAL, turn V-Sync off
+from RetroArch's own menu for that game.
+
+To force another setting, add it to RETROARCH_FORZADO in System/system.lua.
+The list is a plain table of key/value pairs.
+
+Saves/, SaveStates/ and Bios/ are the only absolute paths left in the project.
+RetroArch works out every other folder from its own location; not these three,
+because they sit outside its tree. Being rewritten each time means moving the
+launcher between a USB stick and the internal disk fixes them by itself.
+
+One case needs care there. If the launcher itself runs from the internal exFAT
+disk, the cores cannot see that disk at all - they never load the ATA driver -
+so pointing them at Saves/ on it would send the saves nowhere. The launcher
+detects this and redirects them to the first device a core can read, the same
+one the ROM was copied to.
+
+Note on video_threaded: it does nothing on PS2. Makefile.ps2 builds with
+HAVE_THREADS = 0, so video_thread_wrapper is not even compiled in. The setting
+is read and stored, and ignored.
+
+A ROM copied off the internal disk keeps its console folder
+(RETROLauncher/TempUSB/megadrive/Sonic.gen), so its saves land in the same place as
+if it had been launched from a USB stick.
+
+Where each thing lives, and why
+-------------------------------
+    RetroArch (LibretroPS2Files/)   USB stick     once, by hand
+    the ROM being launched          USB stick     every launch, automatic
+    its saves                       USB stick     every launch, automatic
+    saves coming back               internal      next launcher start
+
+The internal drive stays the home of the ROMs and the saves. The USB stick is
+the workbench: the only thing that lives there permanently is RetroArch itself,
+because a core cannot read the internal drive after it resets the IOP.
+
+That first line is a one-time copy of about 75 MB - it is not redone at each
+launch, which would take minutes. What travels every time is a ROM and a save
+file, a few tens of kilobytes, imperceptible.
+
+BOOT_LOG.txt says on every start which installation was picked and whether it
+sits somewhere a core can read.
+
+Launching from the internal disk: what actually happens
+-------------------------------------------------------
+A RetroArch core cannot read the internal drive. Not a bug and not fixable from
+here: every core calls SifIopReset before anything else, which wipes the IOP and
+reloads its own driver list - usbd, bdm, bdmfs_fatfs, usbmass_bd, mx4sio, cdfs,
+dev9. ata_bd is not in that list, and nothing loaded beforehand survives. No
+file dropped anywhere changes this; the driver has to be inside the core.
+
+So when the launcher lives on the internal drive, each launch does a round trip:
+
+    0. RetroArch itself is copied to <USB>/RETROLauncher/LibretroPS2Files/ -
+       the config, and ONLY the core this game needs
+    1. the ROM is copied to <USB>/RETROLauncher/Roms/<console>/
+    2. that game's save and save states go with it
+    3. the core plays, reading and writing on the stick
+    4. next time the launcher starts, it collects everything written there and
+       puts it back on the internal drive, then empties the stick
+
+The drive stays the home of your saves; the stick is only a corridor. Step 2
+matters as much as step 4 - without it a game would start blank and overwrite
+what was on the drive.
+
+ROMs are small, so the copy is imperceptible. It is one ROM at a time: the
+previous one is cleared, so the stick never fills up.
+
+    A USB stick should be plugged in.
+
+Without one the launcher falls back to the memory card, which works but offers
+8 MB - fine for a Game Boy or NES ROM and its saves, not for a GBA one. If
+neither is available, the game will not start and the launcher says so.
+
+PS2 ISOs and PS1 games are not concerned: Neutrino and POPStarter load their own
+ata_bd and read the internal drive directly. Which is convenient, since those
+are the large files.
+
+Set SAVES_PUENTE_ON to false in System/system.lua to disable the save round
+trip, and ROM_SHUTTLE_ON to false to disable the whole mechanism.
+
+The stick mirrors the drive
+---------------------------
+    <USB>/RETROLauncher/
+        LibretroPS2Files/     the config and the one core in use
+        Bios/                 whatever RetroArch looks for in system_directory
+        Roms/<console>/       the ROM being played
+        Saves/<console>/      its saves
+        SaveStates/<console>/
+
+Exactly the layout of the internal drive. There was a TempUSB/ folder in the
+middle of all that, and it was a patch for a problem that no longer exists:
+RUTA_LIBRETRO used to pick the working copy as the master installation, and
+hiding it under another name avoided that. The master is now recognised by
+sitting next to the launcher (RUTA_LIBRETRO_MAESTRA), so the working copy can go
+back where it belongs and both halves of the setup read the same way.
+
+Green means nothing to copy
+---------------------------
+A game whose ROM is already on the stick is drawn in green in the list, and the
+launch screen says "ROM already on USB" and "Core already on USB" in green too.
+On USB 1.1 - one megabyte per second on a good day - a Game Boy Advance ROM is
+fifteen seconds, so knowing in advance is worth a colour.
+
+RetroArch opens files, it does not create folders
+------------------------------------------------
+Every directory retroarch.cfg names is created on the stick before a core is
+launched - all seventeen of them, on every launch, because a mkdir on a folder
+that already exists costs nothing and a missing one costs a whole boot.
+
+That is not theory. The whole retroarch/ tree used to be walked file by file on
+every launch, comparing sizes, to copy nothing: hundreds of reads on the stick
+per game. Removing that was right. What was wrong was replacing it with nothing:
+the stick was left holding retroarch.cfg and config/ and not one other folder,
+and every core came up black.
+
+The one that matters most is temp/ - that is cache_directory, where RetroArch
+extracts a .zip. ROMs here are zipped, so no temp/ means no content at all. The
+second is logs/: log_to_file was "true" the whole time and not one log was ever
+written, which is precisely how the missing folders were finally found - an empty
+log directory that RetroArch could not create for itself.
+
+The launcher now lists these folders in the journal at every start, under LLAVE,
+and says so out loud if one could not be created.
+
+The copy itself reports progress in KB. System.copyFile says nothing while it
+works, so files above 256 KB are copied a chunk at a time with a line updated
+between chunks. The chunk is deliberately large: on USB 1.1 what costs is the
+latency per transfer, not the bytes.
+
+Launching a game, step by step
+------------------------------
+Everything before a core starts is announced on screen and in the log, because
+when one of these fails the only thing that used to show was "Games or RetroArch
+not found", which does not say which one:
+
+    > Checking cores for Nintendo Game Boy
+    > Core: gambatte_libretro_ps2.elf
+    > Checking gambatte_libretro_ps2.elf on USB
+    > Writing retroarch.cfg
+    > Copying ROM
+    > Launching Tetris
+
+That is the whole of it, and it used to be much more. Preparing the stick began
+with a recursive walk of the entire retroarch/ tree - assets, database,
+playlists, thumbnails, hundreds of files - comparing sizes one by one on every
+launch, to copy none of them. A core running the rgui menu opens none of those
+folders. The folders are now simply created, and only two things are written:
+retroarch.cfg with its per-core overrides, and the core itself if its size on the
+stick does not match.
+
+The saves that travel with the ROM are two directory listings, Saves/<console>
+and SaveStates/<console>, copying only the files whose name starts with this
+game. They are not optional: without them the game starts blank and overwrites
+what is on the drive when it saves.
+
+Two installations, and telling them apart is the whole point
+-----------------------------------------------------------
+    the master     next to the launcher, all sixty cores from the nightly.
+                   It answers WHAT can be played. No core needs to read it.
+    the shuttle    TempUSB/LibretroPS2Files, holding THE core of the game being
+                   launched and nothing else. It answers WHAT RUNS IT.
+
+RUTA_LIBRETRO returns the shuttle as soon as one exists, because it is the only
+one a core can read after SifIopReset. Everything that asks "what is available"
+must ask the master instead - RUTA_LIBRETRO_MAESTRA. Three places asked the wrong
+one, and that is the real reason "Games or RetroArch not found" came up on Lynx,
+GBA, GB, GBC and NES with all sixty cores sitting on the disk:
+
+    existe()            the gate that runs BEFORE the launch sequence, from
+                        error_run(). It required one hardcoded core per system and
+                        looked for it in the shuttle. It now asks whether ANY core
+                        serving that system exists in the master.
+    CORE_EXTENSIONES()  reads a core's .info to know its extensions. The shuttle
+                        carries one .info, so every other core came back with no
+                        declared extensions, CORE_SIRVE judged it useless, and the
+                        per-system core list came out empty.
+    LIBRETRO_PREPARAR_PARA()  the SOURCE of the copy. Once a shuttle existed it
+                        copied from the shuttle to itself, so a missing core
+                        stayed missing.
+
+And elegir_core ended with "if #rutas <= 1 then return ruta_defecto". "The only
+one there is" and "the one that was the default" are not the same thing:
+ruta_defecto is a bare filename when the core could not be resolved. It returns
+that one core now.
+
+The error message says which
+----------------------------
+"Games or RetroArch" named neither. existe() now leaves the detail in
+ERROR_DETALLE - "ROM not found", "No core for Atari Lynx" - and the menu shows it
+instead, for the twelve libretro systems as it already did for PS1.
+
+The config is overwritten, not merged
+-------------------------------------
+retroarch.cfg and retroarch/config/ are copied to the stick on every launch
+without comparing. RetroArch rewrites its own copy every time it exits, on the
+stick, so anything changed from a core's menu would otherwise drift away from the
+project file and edits made on the PC would never arrive. The disk wins.
+
+Everything else - cores, info - is still copied only when missing or a different
+size. Those are megabytes; the config is kilobytes.
+
+If a core crashes
+-----------------
+Nothing is lost that was written. Saves and save states are on the stick, and
+SAVES_RECUPERAR runs at every launcher start, before anything else can fail - it
+collects them and puts them back on the internal drive. A crash just means they
+come home one boot later.
+
+What a crash can lose is what RetroArch had not written yet. Save states are
+written the moment you make one, so they survive. Battery saves (.srm) are
+flushed when the core unloads, so a hard freeze loses them - that is RetroArch's
+behaviour, not something this launcher can sit in front of.
+
+No USB stick, no libretro consoles
+----------------------------------
+If RetroArch sits on the internal drive and there is no USB stick to shuttle it
+to, the twelve libretro systems are switched off before the lists are even built
+(LIBRETRO_APAGAR_SI_IMPOSIBLE). A console that is absent is more honest than one
+that opens and answers "Games or RetroArch not found" on every game. The reason
+is written to BOOT_LOG.txt and shown on the loading screen.
+
+Memory cards do not count as a destination here: 8 MB does not hold a core.
+
+The internal disk changes name
+------------------------------
+The same drive does not answer to the same name on both sides of a core launch:
+
+    Enceladus, i.e. the launcher ......  always mass0:
+    a RetroArch core ..................  mass0: or mass1: or mass2:...
+
+RetroArch renumbers everything, because it resets the IOP and mounts its own
+stack in the order set by init_drivers(): usbmass_bd first, then mx4sio, then
+ata_bd. BDM volumes are numbered as they connect, so the internal drive's index
+is exactly the number of USB devices ahead of it. Verified on hardware: with one
+USB stick it is mass1:, with none it is mass0:.
+
+The launcher counts them - BDM_DEVICES minus the ones flagged in BDM_ATA - in
+DEV_ATA_PARA_CORE(). Setting ATA_DEV_CORE to "ata0:" in System/system.lua uses
+instead the stable name a recent bdmfs_fatfs registers from bd->path, which does
+not depend on how many sticks are plugged in.
+
+Only cores rebuilt with the ata_bd patch can read the internal disk at all. The
+list is CORES_ATA in System/system.lua; add a core there after rebuilding it.
+Anything not on that list still gets its ROM copied to a USB stick or the memory
+card first, because for those cores the drive does not exist. Saves follow the
+same rule: on the disk for a patched core, on the shuttle device otherwise. Set
+CORES_ATA_ON to false to force the old behaviour for everything.
+
+BIOS
+----
+Bios/ is the single copy. It is handed to RetroArch as system_directory, so a
+core reads it where it sits and there is no second copy to keep in sync.
+
+One case breaks that: a core that cannot read the drive Bios/ is on. Then, and
+only then, the launcher drops the files RetroArch actually looks for
+(BIOS_LIBRETRO_LISTA in System/system.lua - gba_bios.bin) onto the shuttle
+device, next to the ROM. Everything else in Bios/ - the PS2 BIOS, Ember, the
+blank VMC - belongs to Neutrino, POPStarter and the VMC manager, which read the
+internal drive directly and never need a copy.
+
+Why TempGBA and SNESticle are gone
+----------------------------------
+TempGBA was built for the PSP. On PS2 it runs a Game Boy Advance game at 45-55
+FPS, while gpSP - already in LibretroPS2Files/cores - runs it at full speed
+thanks to its dynarec. It was strictly worse, and it carried a fourth copy of
+gba_bios.bin.
+
+SNESticle was the opposite case: written for this machine, in MIPS assembly, and
+using the PS2 vector units, where snes9x2002 does not. It was removed anyway, to
+keep one kind of core. If you want it back, drop the folder in and restore its
+entry in alt_text and name_cores_alt (slot 12) in System/funciones.lua.
+
+Neither system has an "alternative core" now. The ones that still do are
+Megadrive (PicoDrive alt), Famicom (QuickNES), Game Boy and Game Boy Color
+(TGB Dual), plus Enceladus for apps and OPL for PS2 ISOs.
+
+Updating a module
+-----------------
+Replace the folder, keep the name. For RetroArch, unzip a nightly into
+LibretroPS2Files/ keeping its own structure - see the .INFO file in there.
+For Neutrino or OPL, drop in the new ELF. Nothing to configure.
+
+uLaunchELF ships under a different filename in every release - WLE.ELF,
+WLE-R3Z.ELF, WLE-R3Z-DS34.ELF - so the launcher does not look for a name: it
+takes the first .elf in uLaunchELF/. Drop the new one in, delete the old, done.
+A name starting with "_" is the mark used to hide the app from the list without
+deleting it, and the toggle in the menu renames whatever file is actually there.
+
+BOOT_LOG.txt opens with the one line that explains everything else:
+
+    ARRANCADO DESDE : DISCO INTERNO exFAT  (mass0:)
+    ARRANCADO DESDE : LLAVE USB / soporte externo  (mass0:)
+
+The same thing is written on the loading screen, white on a black band at the
+top, and stays there until the menu draws over it:
+
+    Booted from INTERNAL exFAT drive
+    mass1:
+
+Two lines, and nothing else. It used to add where RetroArch was and whether games
+would start - which meant calling RUTA_LIBRETRO() from the loading screen, a scan
+of every device that takes seconds and happens precisely when the screen has
+stopped refreshing. It looked like a freeze because it was one. That scan now
+runs once per boot and its result is kept (LIBRETRO_CACHE); the RetroArch
+diagnostic is in BOOT_LOG.txt, in full, which is where it belongs.
+
+The loading screen is a checklist
+--------------------------------
+A black panel down the left side - x=30 to x=206, no wider - with the steps
+rolling down it. Done steps are grey, the one in progress is white and marked
+">". The same lines go to BOOT_LOG.txt with an immediate flush.
+
+It starts at x=30 and not at 0 because a TV clips the edges, and it stops at 206
+because that is where the "LOADING" drawn inside LOADING.png begins: the panel
+does not touch it, so there is nothing to cover up and nothing to repeat.
+
+Only one screen paints during boot. The old progress screen
+(pantalla_reiniciar_conf) returns immediately while CARGA_FONDO is alive -
+otherwise the two took turns and the result was a flicker between a progress
+screen and a black panel. Outside boot it works as before, which is what "reset
+configuration" uses.
+
+      preloading console logos
+      reading configuration
+      building game lists
+      scanning gb   (5/15)
+      scanning gb   112 found
+    > APPS: listing mass1:
+
+A single band showed where it stopped but not what it had been through. A list
+shows both, and the last line is by definition the thing that did not finish.
+
+The fifteen "scanning" steps are the expensive part: each system looks for its ROM
+folder on every drive, under several names - Roms/<system>, roms/snes
+EmulationStation-style, Games/ - so one system is already dozens of directory
+listings, and on exFAT over BDM each one costs.
+
+APPS and the root of the drive
+------------------------------
+System 13, the apps list, used to search four sensible places - APPS/ on each
+drive, mc0:/APPS, mc1:/APPS, Roms/APPS - and then three more: the ROOT of mc0:,
+of mc1:, and of the drive itself, descending one level into every folder found
+there. On a drive that also serves OPL that means listing ART, THM, CHT,
+$RECYCLE.BIN and System Volume Information, thousands of files each. That is
+where booting stopped.
+
+APPS_RAIZ_ON in System/system.lua is false: only the four sensible places are
+searched. Set it to true to get the old sweep back.
+
+Two things were wrong in that loop and both are fixed. The list of places to
+search has holes punched in it - entries set to nil when a device is absent - and
+it was walked with "#", whose result on a table with holes is undefined in Lua:
+it can stop at the first gap and silently skip everything after. It is walked to
+8 now. And the loop reports each directory before listing it, with the entry
+count after, so a hang names the folder.
+
+One journal: RETROLauncher.log
+------------------------------
+There were five - BDM_REPORT, PREBOOT_LOG, BOOT_LOG, LAUNCH_LOG, MEDIA_LOG - and
+none of them was readable on its own, because what you need is the ORDER things
+happened in, and split across five files the order is gone. It is one file now,
+with a category per line:
+
+    PRE     the pre-boot (System/index.lua), before any of this exists
+    BOOT    boot device, IRX modules, drives, search roots
+    CARGA   the boot steps, the same ones shown on screen
+    CONF    what gets forced into retroarch.cfg
+    SAVES   the save bridge, drive <-> stick
+    LANZA   the launch sequence, and the dump made just before loadELF
+    ART     the last image opened
+    SISTEMAS / RETROARCH / BIOS   the RetroArch diagnostics
+
+The last 24 KB of previous sessions is kept in front, trimmed from the start,
+and each boot opens with a dated ARRANQUE separator. That history is not a
+luxury: a failed launch hands control back to uLaunchELF, and without it the next
+attempt would erase the only trace of the previous one. The pre-boot preserves it
+too - it writes to the same file before system.lua exists.
+
+It is flushed line by line until the drives are listed, then buffered. Three
+markers force it out afterwards, so a hang can be placed:
+
+    BOOT   pantalla de carga pintada
+    BOOT   modulos cargados (language, menu, funciones)
+    BOOT   listas construidas, entrando en el menu
+
+If the file ends before the last one, the launcher never reached the menu. The
+CARGA lines in between say where.
+
+One line does not accumulate: ART. It is the last image opened, kept in memory
+and overwritten, so it costs nothing while you move through a list - it used to
+rewrite a whole file on every single cover load. Set ART_LOG_ON to true to have
+it written the moment it changes, which is only useful when hunting a freeze on
+a specific image.
+
+The step display costs two repaints of the loading screen per step, which is two
+scaled blits - nothing next to a directory listing. It switches itself off once
+the menu is up (CARGA_FONDO is freed), so refreshing a list from the menu does
+not paint the loading screen over it nor grow the log.
+
+Booting from the internal drive is what makes the OSDMenu argument mandatory,
+what makes RetroArch unable to read itself, and what makes ROMs need copying.
+From a USB stick, none of the three applies.
+
+Inside System/
+--------------
+    System/*.lua            the launcher itself
+    System/Config/          current settings
+    System/Defaults/        factory settings, what "reset" restores
+    System/Intros/          the PS1 and PS2 startup animations
+    System/Medias/          fonts, sounds, backgrounds
+
+How this used to look
+---------------------
+Everything above sat under "System/RetroarchPS2/<Console name>/", three levels
+deep, with a full copy of RetroArch repeated for each of the thirteen consoles
+- the same ten core files thirteen times, 36 MB. The name was misleading too:
+most of that folder was never RetroArch. POPStarter, Neutrino, OPL, uLaunchELF,
+TempGBA and SNESticle all lived in it.
+
+Those RetroArch copies also carried twelve retroarch.cfg differing only in
+twenty hardcoded paths like "mass:/RETROLauncher/System/RetroarchPS2/Sega
+Megadrive/retroarch/assets". Keeping them correct required a 2989-line
+relocation script that rewrote twenty-four config files every time the launcher
+changed drive. There are no absolute paths left, so that script is gone and
+moving the launcher between a USB stick, a memory card and the internal exFAT
+disk needs no rewriting at all.

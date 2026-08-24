@@ -1,7 +1,0 @@
-snes9x2002_frameskip = "fixed_interval"
-snes9x2002_frameskip_interval = "1"
-snes9x2002_frameskip_threshold = "33"
-snes9x2002_low_pass_filter = "disabled"
-snes9x2002_low_pass_range = "60"
-snes9x2002_overclock_cycles = "disabled"
-snes9x2002_transparency = "enabled"

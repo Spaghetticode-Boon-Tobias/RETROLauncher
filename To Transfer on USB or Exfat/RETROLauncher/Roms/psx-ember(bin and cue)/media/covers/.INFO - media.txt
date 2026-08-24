@@ -1,0 +1,2 @@
+Place your artwork here, named after the ROM file without its
+extension. MediaCopier.py fills this automatically.

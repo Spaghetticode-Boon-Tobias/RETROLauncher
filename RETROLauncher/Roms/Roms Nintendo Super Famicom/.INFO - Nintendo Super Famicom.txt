@@ -1,9 +1,0 @@
-Here are the ROMs for Nintendo Super Famicom.
-RETROLauncher will search in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Nintendo Super Famicom/Example.smc" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Nintendo Super Famicom/Example.sfc" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Nintendo Super Famicom/Example.zip" - It will find it and list it.
-
-Supported extensions: .smc .sfc .zip

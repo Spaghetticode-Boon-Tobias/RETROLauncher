@@ -1,0 +1,5 @@
+Place your artwork here, named after the ROM file without its
+extension. Example: "Tetris (World).zip" -> "Tetris (World).png"
+
+HelperScripts/MediaCopier.py fills this automatically from a
+Batocera / Recalbox / EmulationStation gamelist.xml.

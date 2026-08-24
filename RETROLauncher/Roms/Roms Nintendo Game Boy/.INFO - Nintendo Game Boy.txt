@@ -1,8 +1,0 @@
-Here are the ROMs for Nintendo Game Boy.
-RETROLauncher will look in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy/Example.gb" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Nintendo Game Boy/Example.zip" - It will find it and list it.
-
-Supported extensions: .gb .zip

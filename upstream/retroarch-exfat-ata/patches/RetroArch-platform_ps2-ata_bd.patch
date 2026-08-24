@@ -1,0 +1,55 @@
+diff --git a/frontend/drivers/platform_ps2.c b/frontend/drivers/platform_ps2.c
+index 16115d8..a39958a 100644
+--- a/frontend/drivers/platform_ps2.c
++++ b/frontend/drivers/platform_ps2.c
+@@ -186,6 +186,11 @@ static void init_drivers(bool extra_drivers)
+    init_poweroff_driver();
+ #endif
+    init_dev9_driver();
++   /* Publish the internal ATA drive as a BDM block device, so that a
++    * FAT32/exFAT formatted internal disk is reachable as massN: just like
++    * a USB stick. Loaded after the USB and MX4SIO drivers so that those
++    * devices get first claim on the mass numbering. */
++   init_ata_bd_driver(true);
+    hddStatus = init_hdd_driver(false, only_if_booted_from_hdd);
+ 
+ #ifndef IS_SALAMANDER
+@@ -265,6 +270,7 @@ static void deinit_drivers(bool deinit_filesystem, bool deinit_powerOff)
+       umount_hdd_partition(mountPoint);
+ 
+       deinit_hdd_driver(false);
++      deinit_ata_bd_driver(false);
+       deinit_dev9_driver();
+       deinit_cdfs_driver();
+       deinit_mx4sio_driver(true);
+@@ -482,6 +488,30 @@ static int frontend_ps2_parse_drive_list(void *data, bool load_content)
+          enum_idx,
+          FILE_TYPE_DIRECTORY, 0, 0, NULL);
+ 
++   /* A second BDM volume - which is what an internal ATA drive becomes once
++    * ata_bd is loaded - was unreachable: the list only ever offered "mass:",
++    * i.e. volume 0. With a USB stick plugged in, the stick takes volume 0 and
++    * the internal drive lands on volume 1, mounted and readable but never
++    * offered. Hence mass1: here - "mass:" above already IS volume zero, so
++    * listing mass0: as well would only show the same device twice.
++    *
++    * Which name the drive gets depends on the ps2sdk the core was built
++    * against: a current bdmfs_fatfs registers one iomanX device per distinct
++    * bd->path, and ps2atad sets bd->path = "ata", so the drive shows up as
++    * ata0:. An older bdmfs_fatfs folds every block device into "mass" and the
++    * drive is just another massN:. Both are listed, so the same binary works
++    * either way. */
++   menu_entries_append(list,
++         rootDevicePath(BOOT_DEVICE_MASS1),
++         msg_hash_to_str(MENU_ENUM_LABEL_FILE_DETECT_CORE_LIST_PUSH_DIR),
++         enum_idx,
++         FILE_TYPE_DIRECTORY, 0, 0, NULL);
++   menu_entries_append(list,
++         rootDevicePath(BOOT_DEVICE_ATA0),
++         msg_hash_to_str(MENU_ENUM_LABEL_FILE_DETECT_CORE_LIST_PUSH_DIR),
++         enum_idx,
++         FILE_TYPE_DIRECTORY, 0, 0, NULL);
++
+    if (hddMountStatus == HDD_MOUNT_STATUS_OK)
+    {
+       size_t _len  = strlcpy(hdd, mountPoint, sizeof(hdd));

@@ -1,0 +1,407 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ab960ab..bb6ebc1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -142,7 +142,7 @@ add_irx_source(usbmass_bd USBMASS_BD_IRX)
+ add_irx_source(mx4sio_bd MX4SIO_BD_IRX)
+ add_irx_source(cdfs CDFS_IRX)
+ add_irx_source(ps2dev9 PS2DEV9_IRX)
+-add_irx_source(ps2atad PS2ATAD_IRX)
++add_irx_source(ata_bd ATA_BD_IRX)
+ add_irx_source(ps2hdd PS2HDD_IRX)
+ add_irx_source(ps2fs PS2FS_IRX)
+ add_irx_source(mtapman MTAPMAN_IRX)
+@@ -171,7 +171,7 @@ set(IRX_SOURCES
+     ${MX4SIO_BD_IRX}
+     ${CDFS_IRX}
+     ${PS2DEV9_IRX}
+-    ${PS2ATAD_IRX}
++    ${ATA_BD_IRX}
+     ${PS2HDD_IRX}
+     ${PS2FS_IRX}
+     ${MTAPMAN_IRX}
+@@ -218,6 +218,9 @@ add_driver_objects(cdfs internals init deinit)
+ # DEV9 driver
+ add_driver_objects(dev9 internals init deinit)
+ 
++# ATA_BD driver
++add_driver_objects(ata_bd internals init deinit)
++
+ # HDD driver
+ add_driver_objects(hdd
+     internals
+@@ -300,6 +303,7 @@ add_library(ps2_drivers_impl STATIC
+     ${mx4sio_DRIVER_OBJECTS}
+     ${cdfs_DRIVER_OBJECTS}
+     ${dev9_DRIVER_OBJECTS}
++    ${ata_bd_DRIVER_OBJECTS}
+     ${hdd_DRIVER_OBJECTS}
+     ${filesystem_DRIVER_OBJECTS}
+     ${joystick_DRIVER_OBJECTS}
+diff --git a/include/ps2_ata_bd_driver.h b/include/ps2_ata_bd_driver.h
+new file mode 100644
+index 0000000..84067da
+--- /dev/null
++++ b/include/ps2_ata_bd_driver.h
+@@ -0,0 +1,54 @@
++/*
++# _____     ___ ____     ___ ____
++#  ____|   |    ____|   |        | |____|
++# |     ___|   |____ ___|    ____| |    \    PS2DEV Open Source Project.
++#-----------------------------------------------------------------------
++# Copyright 2005, ps2dev - http://www.ps2dev.org
++# Licenced under GNU Library General Public License version 2
++# Review ps2sdk README & LICENSE files for further details.
++#
++# PS2_ATA_BD_DRIVER
++*/
++
++#ifndef PS2_ATA_BD_DRIVER
++#define PS2_ATA_BD_DRIVER
++
++#include <stdbool.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++enum ATA_BD_INIT_STATUS {
++    ATA_BD_INIT_STATUS_DEPENDENCY_BDM_ERROR = -4,
++    ATA_BD_INIT_STATUS_DEPENDENCY_DEV9_ERROR = -3,
++    ATA_BD_INIT_STATUS_IRX_ERROR = -2,
++    ATA_BD_INIT_STATUS_UNKNOWN = -1,
++    ATA_BD_INIT_STATUS_OK = 0,
++};
++
++/* ATA_BD DRIVER REQUIRES DEV9 AND BDM DRIVERS AS DEPENDENCIES.
++ *
++ * ata_bd.irx is the very same driver as ps2atad.irx, built with
++ * ATA_ENABLE_BDM=1. On top of the "atad" library exported by ps2atad, it
++ * calls bdm_connect_bd() for every drive it finds, which publishes the
++ * internal ATA disk as a BDM block device. Combined with bdmfs_fatfs.irx,
++ * that makes a FAT32/exFAT formatted internal drive visible as massN:,
++ * exactly like a USB stick or an MX4SIO card.
++ *
++ * Because ata_bd exports the same "atad" library as ps2atad, the two are
++ * mutually exclusive: loading both fails. The APA stack (ps2hdd/ps2fs, i.e.
++ * hdd0:) works on top of ata_bd just as well, so ps2_hdd_driver depends on
++ * this driver instead of embedding ps2atad.irx of its own.
++ */
++/* With init_dependencies = false, dev9 and bdm must already be resident:
++ * ata_bd.irx imports bdm_connect_bd()/bdm_disconnect_bd() unconditionally and
++ * will fail to link otherwise. */
++enum ATA_BD_INIT_STATUS init_ata_bd_driver(bool init_dependencies);
++void deinit_ata_bd_driver(bool deinit_dependencies);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* PS2_ATA_BD_DRIVER */
+diff --git a/include/ps2_filesystem_driver.h b/include/ps2_filesystem_driver.h
+index 54b422c..96ca62f 100644
+--- a/include/ps2_filesystem_driver.h
++++ b/include/ps2_filesystem_driver.h
+@@ -23,6 +23,7 @@
+ #include <ps2_mx4sio_driver.h>
+ #include <ps2_cdfs_driver.h>
+ #include <ps2_dev9_driver.h>
++#include <ps2_ata_bd_driver.h>
+ #include <ps2_hdd_driver.h>
+ 
+ #ifdef __cplusplus
+@@ -46,6 +47,14 @@ enum BootDeviceIDs {
+     BOOT_DEVICE_HOST,
+     BOOT_DEVICE_HOST0,
+     BOOT_DEVICE_HOST1,
++    /* Internal ATA drive published by ata_bd. Not the APA stack: this is the
++     * FAT32/exFAT filesystem on the drive, mounted by bdmfs_fatfs. It gets its
++     * own device name rather than a massN: slot because ps2atad sets
++     * bd->path = "ata", and bdmfs_fatfs registers one iomanX device per
++     * distinct path, handling "mass" separately. Appended at the end so the
++     * existing values keep their numbers. */
++    BOOT_DEVICE_ATA0,
++    BOOT_DEVICE_ATA1,
+     BOOT_DEVICE_COUNT,
+ };
+ 
+diff --git a/src/ps2_ata_bd_driver.c b/src/ps2_ata_bd_driver.c
+new file mode 100644
+index 0000000..3643ed8
+--- /dev/null
++++ b/src/ps2_ata_bd_driver.c
+@@ -0,0 +1,93 @@
++/*
++# _____     ___ ____     ___ ____
++#  ____|   |    ____|   |        | |____|
++# |     ___|   |____ ___|    ____| |    \    PS2DEV Open Source Project.
++#-----------------------------------------------------------------------
++# Copyright 2005, ps2dev - http://www.ps2dev.org
++# Licenced under GNU Library General Public License version 2
++# Review ps2sdk README & LICENSE files for further details.
++#
++# PS2_ATA_BD_DRIVER
++*/
++
++#include <stdint.h>
++#include <stddef.h>
++#include <ps2_ata_bd_driver.h>
++#include <ps2_dev9_driver.h>
++#include <ps2_bdm_driver.h>
++#include <irx_common_macros.h>
++
++#include <sifrpc.h>
++#include <loadfile.h>
++
++EXTERN_IRX(ata_bd_irx);
++
++#ifdef F_internals_ps2_ata_bd_driver
++enum ATA_BD_INIT_STATUS __ata_bd_init_status = ATA_BD_INIT_STATUS_UNKNOWN;
++DECL_IRX_VARS(ata_bd);
++#else
++extern enum ATA_BD_INIT_STATUS __ata_bd_init_status;
++EXTERN_IRX_VARS(ata_bd);
++#endif
++
++#ifdef F_init_ps2_ata_bd_driver
++static enum ATA_BD_INIT_STATUS loadIRXs(void) {
++    /* Already resident from an earlier call */
++    if (__ata_bd_init_status == ATA_BD_INIT_STATUS_OK)
++        return ATA_BD_INIT_STATUS_OK;
++
++    /* ATA_BD.IRX */
++    if (CHECK_IRX_LOAD(ata_bd)) {
++        __ata_bd_id = SifExecModuleBuffer(&ata_bd_irx, size_ata_bd_irx, 0, NULL, &__ata_bd_ret);
++        if (CHECK_IRX_ERR(ata_bd))
++            return ATA_BD_INIT_STATUS_IRX_ERROR;
++
++        return ATA_BD_INIT_STATUS_OK;
++    }
++
++    /* CHECK_IRX_LOAD is false while the status is not OK: an earlier attempt
++     * left the module in a failed state. Report it instead of silently
++     * claiming success -- ps2hdd.irx and ps2fs.irx import the "atad" library
++     * this module registers, and would fail in turn. */
++    return ATA_BD_INIT_STATUS_IRX_ERROR;
++}
++
++enum ATA_BD_INIT_STATUS init_ata_bd_driver(bool init_dependencies) {
++    /* Requires DEV9, which drives the expansion bay the ATA port lives on */
++    if (init_dependencies && init_dev9_driver() != DEV9_INIT_STATUS_OK) {
++        __ata_bd_init_status = ATA_BD_INIT_STATUS_DEPENDENCY_DEV9_ERROR;
++        return __ata_bd_init_status;
++    }
++
++    /* Requires BDM, which the driver hands the drive over to */
++    if (init_dependencies && init_bdm_driver() != BDM_INIT_STATUS_OK) {
++        __ata_bd_init_status = ATA_BD_INIT_STATUS_DEPENDENCY_BDM_ERROR;
++        return __ata_bd_init_status;
++    }
++
++    __ata_bd_init_status = loadIRXs();
++    return __ata_bd_init_status;
++}
++#endif
++
++#ifdef F_deinit_ps2_ata_bd_driver
++static void unloadIRXs(void) {
++    /* ATA_BD.IRX */
++    if (CHECK_IRX_UNLOAD(ata_bd)) {
++        SifUnloadModule(__ata_bd_id);
++        RESET_IRX_VARS(ata_bd);
++        /* Must be reset alongside the IRX vars, otherwise the early-out in
++         * loadIRXs() would skip a legitimate reload. */
++        __ata_bd_init_status = ATA_BD_INIT_STATUS_UNKNOWN;
++    }
++}
++
++void deinit_ata_bd_driver(bool deinit_dependencies) {
++    unloadIRXs();
++
++    if (deinit_dependencies) {
++        deinit_bdm_driver();
++        deinit_dev9_driver();
++    }
++}
++#endif
+diff --git a/src/ps2_filesystem_driver.c b/src/ps2_filesystem_driver.c
+index 8197afb..ca20115 100644
+--- a/src/ps2_filesystem_driver.c
++++ b/src/ps2_filesystem_driver.c
+@@ -41,6 +41,8 @@
+ #define DEVICE_HOST  "host:"
+ #define DEVICE_HOST0 "host0:"
+ #define DEVICE_HOST1 "host1:"
++#define DEVICE_ATA0  "ata0:"
++#define DEVICE_ATA1  "ata1:"
+ 
+ #define DEVICE_MC0_PATH   DEVICE_MC0 DEVICE_SLASH
+ #define DEVICE_MC1_PATH   DEVICE_MC1 DEVICE_SLASH
+@@ -57,10 +59,13 @@
+ #define DEVICE_HOST_PATH  DEVICE_HOST DEVICE_SLASH
+ #define DEVICE_HOST0_PATH DEVICE_HOST0 DEVICE_SLASH
+ #define DEVICE_HOST1_PATH DEVICE_HOST1 DEVICE_SLASH
++#define DEVICE_ATA0_PATH  DEVICE_ATA0 DEVICE_SLASH
++#define DEVICE_ATA1_PATH  DEVICE_ATA1 DEVICE_SLASH
+ 
+ #if F___internal_deinit_ps2_filesystem_driver
+ void __internal_deinit_ps2_filesystem_driver(bool deinit_powerOff) {
+     deinit_hdd_driver(false);
++    deinit_ata_bd_driver(false);
+     deinit_cdfs_driver();
+     init_mx4sio_driver(false);
+     deinit_usb_driver(true);
+@@ -108,6 +113,7 @@ void __internal_deinit_only_boot_ps2_filesystem_driver(bool deinit_powerOff) {
+         case BOOT_DEVICE_HDD:
+         case BOOT_DEVICE_HDD0: {
+             deinit_hdd_driver(false);
++            deinit_ata_bd_driver(false);
+             deinit_dev9_driver();
+             if (deinit_powerOff) {
+                 deinit_poweroff_driver();
+@@ -160,6 +166,10 @@ void init_ps2_filesystem_driver() {
+     init_mx4sio_driver(false);
+     init_cdfs_driver();
+     init_dev9_driver();
++    /* Publishes an internal ATA drive as a BDM device, so that a
++     * FAT32/exFAT formatted internal disk shows up as massN:.
++     * Also provides the ATA layer the APA stack below sits on. */
++    init_ata_bd_driver(true);
+     init_hdd_driver(false, true);
+ 
+     poweroffSetCallback(&poweroffHandler, NULL);
+@@ -209,6 +219,9 @@ void init_only_boot_ps2_filesystem_driver() {
+         case BOOT_DEVICE_HDD0:
+             init_poweroff_driver();
+             init_dev9_driver();
++            /* true: this path never calls init_usb_driver(), so bdm.irx is
++             * not resident yet and ata_bd.irx imports it unconditionally. */
++            init_ata_bd_driver(true);
+             init_hdd_driver(false, false);
+             poweroffSetCallback(&poweroffHandler, NULL);
+             mount_current_hdd_partition();
+@@ -281,6 +294,10 @@ char *rootDevicePath(enum BootDeviceIDs device_id) {
+             return DEVICE_HOST0_PATH;
+         case BOOT_DEVICE_HOST1:
+             return DEVICE_HOST1_PATH;
++        case BOOT_DEVICE_ATA0:
++            return DEVICE_ATA0_PATH;
++        case BOOT_DEVICE_ATA1:
++            return DEVICE_ATA1_PATH;
+         default:
+             return "";
+     }
+@@ -319,6 +336,10 @@ enum BootDeviceIDs getBootDeviceID(char *path) {
+         return BOOT_DEVICE_HOST0;
+     else if (!strncmp(path, DEVICE_HOST1, 6))
+         return BOOT_DEVICE_HOST1;
++    else if (!strncmp(path, DEVICE_ATA0, 5))
++        return BOOT_DEVICE_ATA0;
++    else if (!strncmp(path, DEVICE_ATA1, 5))
++        return BOOT_DEVICE_ATA1;
+     else
+         return BOOT_DEVICE_UNKNOWN;
+ }
+diff --git a/src/ps2_hdd_driver.c b/src/ps2_hdd_driver.c
+index b664eb7..791c613 100644
+--- a/src/ps2_hdd_driver.c
++++ b/src/ps2_hdd_driver.c
+@@ -21,6 +21,7 @@
+ #include <ps2_fileXio_driver.h>
+ #include <ps2_dev9_driver.h>
+ #include <ps2_bdm_driver.h>
++#include <ps2_ata_bd_driver.h>
+ #include <irx_common_macros.h>
+ 
+ #include <sifrpc.h>
+@@ -30,13 +31,11 @@
+ #include <hdd-ioctl.h>
+ #include <io_common.h>
+ 
+-EXTERN_IRX(ps2atad_irx);
+ EXTERN_IRX(ps2hdd_irx);
+ EXTERN_IRX(ps2fs_irx);
+ 
+ #ifdef F_internals_ps2_hdd_driver
+ enum HDD_INIT_STATUS __hdd_init_status = HDD_INIT_STATUS_UNKNOWN;
+-DECL_IRX_VARS(ps2atad);
+ DECL_IRX_VARS(ps2hdd);
+ DECL_IRX_VARS(ps2fs);
+ char __mountString[10];
+@@ -54,7 +53,6 @@ bool __cwd_is_hdd() {
+ }
+ #else
+ extern enum HDD_INIT_STATUS __hdd_init_status;
+-EXTERN_IRX_VARS(ps2atad);
+ EXTERN_IRX_VARS(ps2hdd);
+ EXTERN_IRX_VARS(ps2fs);
+ extern char __mountString[];
+@@ -71,7 +69,8 @@ static int hddCheck(void) {
+     return ret;
+ }
+ 
+-static enum HDD_INIT_STATUS loadIRXs(void) {
++static enum HDD_INIT_STATUS loadIRXs(bool init_dependencies) {
++    enum ATA_BD_INIT_STATUS ata_bd_status;
+     char hddarg[] = "-o"
+                     "\0"
+                     "4"
+@@ -80,12 +79,18 @@ static enum HDD_INIT_STATUS loadIRXs(void) {
+                     "\0"
+                     "20";
+ 
+-    /* PS2ATAD.IRX */
+-    if (CHECK_IRX_LOAD(ps2atad)) {
+-       __ps2atad_id = SifExecModuleBuffer(&ps2atad_irx, size_ps2atad_irx, 0, NULL, &__ps2atad_ret);
+-        if (CHECK_IRX_ERR(ps2atad))
+-            return HDD_INIT_STATUS_PS2ATAD_IRX_ERROR;
+-    }
++    /* ATA_BD.IRX
++     * The ATA layer is owned by ps2_ata_bd_driver. ata_bd.irx exports the
++     * same "atad" library ps2atad.irx does -- ps2hdd.irx and ps2fs.irx sit
++     * on top of it unchanged -- and additionally publishes the drive as a
++     * BDM block device. Loading both modules would fail, so there is a
++     * single ATA driver in the system and this is it. */
++    ata_bd_status = init_ata_bd_driver(init_dependencies);
++    if (ata_bd_status == ATA_BD_INIT_STATUS_DEPENDENCY_DEV9_ERROR ||
++        ata_bd_status == ATA_BD_INIT_STATUS_DEPENDENCY_BDM_ERROR)
++        return HDD_INIT_STATUS_DEPENDENCY_IRX_ERROR;
++    if (ata_bd_status != ATA_BD_INIT_STATUS_OK)
++        return HDD_INIT_STATUS_PS2ATAD_IRX_ERROR;
+ 
+     /* PS2HDD.IRX */
+     if (CHECK_IRX_LOAD(ps2hdd)) {
+@@ -138,7 +143,7 @@ enum HDD_INIT_STATUS init_hdd_driver(bool init_dependencies, bool only_if_booted
+         }
+     }
+ 
+-    __hdd_init_status = loadIRXs();
++    __hdd_init_status = loadIRXs(init_dependencies);
+     return __hdd_init_status;
+ }
+ #endif
+@@ -156,12 +161,6 @@ static void unloadIRXs(void) {
+         SifUnloadModule(__ps2hdd_id);
+         RESET_IRX_VARS(ps2hdd);
+     }
+-
+-    /* PS2ATAD.IRX */
+-    if (CHECK_IRX_UNLOAD(ps2atad)) {
+-        SifUnloadModule(__ps2atad_id);
+-        RESET_IRX_VARS(ps2atad);
+-    }
+ }
+ 
+ void deinit_hdd_driver(bool deinit_dependencies) {
+@@ -169,6 +168,11 @@ void deinit_hdd_driver(bool deinit_dependencies) {
+ 
+     // Requires to have FILEXIO and DEV9 drivers loaded
+     if (deinit_dependencies) {
++        /* ata_bd is a dependency of this driver, not something it owns: tear
++         * it down only when the caller asks for dependencies to go too,
++         * exactly like bdm and dev9 below. A caller that keeps the filesystem
++         * driver up would otherwise lose the internal disk's massN: mapping. */
++        deinit_ata_bd_driver(false);
+         deinit_bdm_driver();
+         deinit_dev9_driver();
+         deinit_fileXio_driver();

@@ -1,0 +1,27 @@
+To Transfer on USB or Exfat  -  a copier a la RACINE du support
+===============================================================
+
+Ce dossier represente la racine d'un support, cle USB (FAT32/exFAT) ou disque
+interne exFAT. Copier son CONTENU a la racine, et fusionner :
+
+    RETROLauncher/     le launcher complet - le MEME partout, universel
+    POPS/              les binaires POPStarter + les jeux .VCD
+
+Le System/index.lua du launcher detecte au demarrage ou il se trouve : la
+console demarre sur la cle, et le disque interne prend la main s'il est
+present (reglages, sauvegardes, VMC, journaux sur le disque). Rien a
+configurer.
+
+--- IMPORTANT si le support EST le disque interne exFAT --------------------
+Le disque doit porter son marqueur, ABSENT de ce paquet expres :
+
+    Roms/!Retrolauncher/internal-ata-disk.flag   (fichier texte, vide suffit)
+
+Il est deja sur ton disque E:. Ne JAMAIS le mettre sur une cle : c'est lui qui
+distingue le disque interne d'une cle USB (les deux apparaissent en "massN:").
+
+--- Cartes memoire PS2 -----------------------------------------------------
+Les cartes par jeu vont a la racine du support, dans VMC/. Le launcher en cree
+une (8 Mo) au premier lancement d'un jeu en copiant Bios/vmc-template.bin.
+Sur PC, RETROLauncher/HelperScripts/VMCManager.py decoupe une grosse carte
+partagee en cartes propres par jeu, et les nomme avec le titre du jeu.

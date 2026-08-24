@@ -1,8 +1,0 @@
-Here are the ROMS for Sega SG-1000.
-RETROLauncher will search in the root of this directory.
-
-Example:
-"mass:/RETROLauncher/Roms/Roms Sega SG-1000/Example.sg" - It will find it and list it.
-"mass:/RETROLauncher/Roms/Roms Sega SG-1000/Example.zip" - It will find it and list it.
-
-Supported extensions: .sg .zip
