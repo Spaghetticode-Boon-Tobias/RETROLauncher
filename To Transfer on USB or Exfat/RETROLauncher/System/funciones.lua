@@ -75,6 +75,25 @@ function capturar(limite)
 	end
 end
 
+--- La palanca esta REALMENTE movida. ---------------------------------------------------
+--- En varios sitios se pregunta "Left_Y ~= 1" para saber si el usuario ha tocado la
+--- palanca. Ese 1 viene de capturar(), que hace "Left_X, Left_Y = 1, 1" cuando la
+--- lectura ya se ha consumido; es un centinela, no la posicion de reposo.
+---
+--- La posicion de reposo es 0. Todo el programa lo da por hecho -- compara siempre
+--- contra -90 y 90 --, asi que "~= 1" es CIERTO con la palanca quieta, y es cierto en
+--- todos los fotogramas.
+---
+--- Donde eso solo elegia la velocidad de repeticion no se notaba. Donde abre una rama
+--- de un "elseif", se lleva por delante todo lo que viene detras: en el submenu de
+--- elementos del editor de temas, la rama de "moverse" se disparaba sola en cada
+--- fotograma -- de ahi el sonido de seleccion sin fin -- y CRUZ y R1 no llegaban nunca
+--- a sus ramas, de ahi que no se pudiera encender ni apagar nada.
+function PALANCA(valor)
+	if valor == nil then return false end
+	return valor <= -90 or valor >= 90
+end
+
 --- Cambia los tiempos de captura de los controles, de acuerdo a los FPS. ---------------
 function control_FPS(vel)
 	CONTROL.JOYSTICK_ON = true
@@ -94,7 +113,10 @@ end
 --- Controlar la reproducción de sonidos y vibración al realizar movimientos. -----------
 function repro_sfx(sonido, canal, vibrar, lado_vibrar)
 	if OPCIONES.SOUND_ON == 1 and sonido ~= nil then
-		Sound.playADPCM(canal, sonido)
+		-- La voz sale del sonido, no del numero que se pasa aqui: los 166 sitios que
+		-- llaman a esta funcion pasan "1", y una sola voz no puede reproducir dos
+		-- sonidos a la vez. Ver SFX_CANALES en system.lua.
+		Sound.playADPCM(SFX_VOZ(sonido, canal), sonido)
 	end
 	OPCIONES.VIBRATION = vibrar
 	OPCIONES.VIBRATION_MODE = lado_vibrar
@@ -3198,15 +3220,25 @@ function opl_config(nombre_iso, ps2_menu, dir_iso)
 		Font.ftPrint(CONTROL.fontARCA, 22, 90+CONTROL.Y_FIX_PAL, 0, 600, 8, nombre_iso, COLOR.BLANCO)
 		for contador = 1, #menus_nombres do
 			local espacio_linea = 90+((contador)*23)+CONTROL.Y_FIX_PAL
-			if #VMC_encontradas <= 0 and menus_valores[1] == 1 then
-				menus_nombres[2] = TEXT_M_PS2[18]
-			elseif #VMC_encontradas >= 1 and menus_valores[1] == 1 and selector_VMC >= 1 then
-				menus_nombres[2] = string.sub(VMC_encontradas[selector_VMC], 11)
-			elseif menus_valores[1] == 0 then
-				menus_nombres[2] = TEXT_M_PS2[3]
-			end
+			-- Las dos primeras lineas eran el ajuste de VMC de Boon, y se rellenaban
+			-- aqui en cada fotograma. La tarjeta se elige ahora en el menu de
+			-- lanzamiento; tener un segundo sitio que decia otra cosa sobre lo mismo
+			-- es justo lo que hacia el conjunto incomprensible. Se quedan en blanco en
+			-- vez de borrarse, para no correr la numeracion de todo lo que viene
+			-- detras.
+			menus_nombres[1] = " "
+			menus_nombres[2] = " "
+			-- Y el VALOR de la linea 1 tambien, que es lo que quedaba a la vista.
+			--
+			-- El menu de Neutrino pone menus_valores[1] a 0 al entrar; el de OPL no lo
+			-- hacia, asi que se quedaba con lo que trajera la configuracion guardada.
+			-- Con el rotulo en blanco pero el valor en 1, la linea salia vacia y con
+			-- "activado" a la derecha, sin nada que dijera de que. A 0 desaparece el
+			-- rotulo y ademas deja de escribirse la linea "$VMC_0=" al generar la
+			-- configuracion de OPL, mas abajo.
+			menus_valores[1] = 0
 			local acti, fix_m = TEXT_GEN[13], 498
-			if contador == 2 then
+			if contador == 1 or contador == 2 then
 				acti = " "
 			elseif contador == 11 then
 				acti, fix_m = gsm_nombres[menus_valores[contador]+1], 22
@@ -3553,6 +3585,17 @@ function menu_neutrino(nombre_iso)
 	TEXT_M_PS2[9]; TEXT_M_PS2[10]; "-".. TEXT_M_PS2[11] .."-"; TEXT_M_PS2[12] ..":"; TEXT_M_PS2[13] ..":";};
 	local menus_valores = {encontrado_vmcd, selector_VMC, 0, modo_0, modo_1, modo_2, modo_3, modo_5, modo_7, 0, gsm_modes[1], gsm_modes[2]}
 
+	-- Las dos primeras lineas eran el ajuste de tarjeta virtual de este menu. Se
+	-- desactivan: la tarjeta se elige en el menu del juego (TRIANGULO), donde se ve la
+	-- ruta completa del fichero. Tener dos sitios para decidir lo mismo, cada uno con
+	-- su forma de guardarlo, es lo que hacia el conjunto incomprensible.
+	-- No se BORRAN las entradas para no correr toda la numeracion del controlador que
+	-- viene despues; se vacian y se anula su valor, asi no hacen nada.
+	menus_nombres[1] = " "
+	menus_nombres[2] = " "
+	menus_valores[1] = 0
+	menus_valores[2] = 0
+
 	-- Ejecutar y controlar menú de configuración PS2 (Neutrino). -----------------------
 	while ps2_menu do
 		CONTROL.FPS = Screen.getFPS(1)
@@ -3596,13 +3639,14 @@ function menu_neutrino(nombre_iso)
 			if contador >= 11 and contador <= 13 then
 				x_fix = 120
 			end
-			if #VMC_encontradas <= 0 and menus_valores[1] == 1 then
-				menus_nombres[2] = TEXT_M_PS2[18]
-			elseif #VMC_encontradas >= 1 and menus_valores[1] == 1 and selector_VMC >= 1 then
-				menus_nombres[2] = string.sub(VMC_encontradas[selector_VMC], 11)
-			elseif menus_valores[1] == 0 then
-				menus_nombres[2] = TEXT_M_PS2[3]
-			end
+			-- Las dos primeras lineas eran el ajuste de VMC de Boon, y se rellenaban
+			-- aqui en cada fotograma. La tarjeta se elige ahora en el menu de
+			-- lanzamiento; tener un segundo sitio que decia otra cosa sobre lo mismo
+			-- es justo lo que hacia el conjunto incomprensible. Se quedan en blanco en
+			-- vez de borrarse, para no correr la numeracion de todo lo que viene
+			-- detras.
+			menus_nombres[1] = " "
+			menus_nombres[2] = " "
 			local espacio_linea = 90+((contador)*23)+CONTROL.Y_FIX_PAL
 			if contador == selector and contador ~= 3 and contador ~= 10 then
 				Font.ftPrint(CONTROL.fontARCA, 22, espacio_linea, 0, 600, 25, menus_nombres[selector], CAMBIOS_EMUS.COLOR_EMU)
@@ -4001,6 +4045,483 @@ function recargar_todas()
 end
 
 --- Recarga un sistema determinado. -----------------------------------------------------
+--- Lista de tarjetas para un juego. Se abre con CRUZ desde el menu del juego. --------
+--- Se muestran las que EXISTEN, con su ruta entera, y despues una entrada "(NEW)" por
+--- unidad para crear una que no existe todavia. Nada se crea al recorrer la lista:
+--- solo al pulsar CRUZ sobre una entrada "(NEW)".
+--- Devuelve la ruta elegida, o nil si se cancela.
+--- Se abre desde el menu de lanzamiento, sobre la linea "VMC file".
+---
+--- De entrada solo se ven las tarjetas DE ESTE JUEGO, que es lo que se busca el 99%
+--- de las veces. Las demas no desaparecen: hay una linea "See all VMC files" que las
+--- trae, y siguen saliendo detras de las del juego. Una carpeta con cien partidas de
+--- otros juegos no ayuda a encontrar la de Dark Cloud.
+---
+--- La ultima linea crea una tarjeta nueva. El numero del final se mueve con
+--- IZQUIERDA / DERECHA -- no con arriba / abajo, que aqui hacen falta para recorrer
+--- la lista, y en el resto del programa izquierda/derecha es siempre "cambiar el
+--- valor de esta linea".
+function VMC_LISTA_ELEGIR(nombre_iso)
+	local id = VMC_ID(nombre_iso)
+	if id == nil then return nil end
+
+	-- Una sola lectura de las carpetas: recorrer la lista no debe volver al disco.
+	local cand, propias = VMC_CANDIDATAS(id)
+	local unidades = VMC_UNIDADES()
+	local ver_todo, num = false, 1
+	local rutas, etiquetas = {}, {}
+
+	local function nombre_nuevo()
+		return VMC_NOMBRE_NUEVO(nombre_iso, num) or (id .."-".. num ..".bin")
+	end
+
+	local function construir()
+		rutas, etiquetas = {}, {}
+		local tope = propias
+		if ver_todo == true then tope = #cand end
+		for i = 1, tope do
+			rutas[#rutas + 1] = cand[i]
+			if i <= propias then etiquetas[#etiquetas + 1] = "* ".. cand[i]
+			else etiquetas[#etiquetas + 1] = "  ".. cand[i] end
+		end
+		if propias == 0 and ver_todo == false then
+			rutas[#rutas + 1] = "-"
+			etiquetas[#etiquetas + 1] = "  no card found for ".. id
+		end
+		if #cand > propias then
+			rutas[#rutas + 1] = "TOGGLE"
+			if ver_todo == true then
+				etiquetas[#etiquetas + 1] = "[ Show only cards for ".. id .." ]"
+			else
+				etiquetas[#etiquetas + 1] = "[ See all VMC files ]  (".. (#cand - propias) .." more)"
+			end
+		end
+		for i = 1, #unidades do
+			rutas[#rutas + 1] = "NEW:".. unidades[i]
+			etiquetas[#etiquetas + 1] = "[ Create on ".. unidades[i] .." <-> ]  ".. nombre_nuevo()
+		end
+	end
+
+	local function refrescar_nuevas()
+		for i = 1, #rutas do
+			if string.sub(rutas[i], 1, 4) == "NEW:" then
+				etiquetas[i] = "[ Create on ".. string.sub(rutas[i], 5) .." <-> ]  ".. nombre_nuevo()
+			end
+		end
+	end
+
+	construir()
+	if #etiquetas == 0 then return nil end
+
+	local VENTANA = 7
+	local sel, abierto, elegida = 1, true, nil
+	JOYSTICK_LIMITE = control_FPS(1)
+	while abierto do
+		CONTROL.FPS = Screen.getFPS(1)
+		capturar(JOYSTICK_LIMITE)
+		dibujar_fondos()
+
+		local ini = sel - (VENTANA // 2)
+		if ini > #etiquetas - VENTANA + 1 then ini = #etiquetas - VENTANA + 1 end
+		if ini < 1 then ini = 1 end
+		local vista, cursor = {}, 1
+		for i = ini, ini + VENTANA - 1 do
+			if etiquetas[i] ~= nil then
+				vista[#vista + 1] = etiquetas[i]
+				if i == sel then cursor = #vista end
+			end
+		end
+		submenu_selector(vista, cursor, "-VMC for ".. id .."   ".. sel .."/".. #etiquetas .."-",
+			56, 344, true, CONTROL.ANCHO // 2,
+			{TEXT_GEN[5], TEXT_GEN[6]}, true, false, {}, nil)
+		refrescar(false)
+
+		local r = rutas[sel]
+
+		if Pads.check(PAD, PAD_CROSS) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_EJECUTAR, 1, false, nil)
+			if r == "TOGGLE" then
+				ver_todo = (ver_todo == false)
+				construir()
+				if sel > #etiquetas then sel = #etiquetas end
+				JOYSTICK_LIMITE = control_FPS(1)
+			elseif r == "-" then
+				JOYSTICK_LIMITE = control_FPS(1)
+			elseif string.sub(r, 1, 4) == "NEW:" then
+				elegida = VMC_CREAR(string.sub(r, 5), nombre_nuevo())
+				abierto = false
+			else
+				elegida = r
+				abierto = false
+			end
+		elseif (Pads.check(PAD, PAD_TRIANGLE) or Pads.check(PAD, PAD_CIRCLE))
+		       and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_CANCELAR, 1, false, nil)
+			abierto = false
+		elseif string.sub(r, 1, 4) == "NEW:" and CONTROL.JOYSTICK_ON == false
+		       and (Pads.check(PAD, PAD_LEFT) or Left_X <= -90) then
+			repro_sfx(S_MOVER, 1, false, nil)
+			num = cambiar_valor(num, 1, 99, 1, false)
+			refrescar_nuevas()
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif string.sub(r, 1, 4) == "NEW:" and CONTROL.JOYSTICK_ON == false
+		       and (Pads.check(PAD, PAD_RIGHT) or Left_X >= 90) then
+			repro_sfx(S_MOVER, 1, false, nil)
+			num = cambiar_valor(num, 1, 99, 1, true)
+			refrescar_nuevas()
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif (Pads.check(PAD, PAD_UP) or Left_Y <= -90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, false)
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif (Pads.check(PAD, PAD_DOWN) or Left_Y >= 90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, true)
+			JOYSTICK_LIMITE = control_FPS(1)
+		end
+	end
+	JOYSTICK_LIMITE = control_FPS(1)
+	return elegida
+end
+
+--- Menu de lanzamiento de un juego de PS2. ---------------------------------------------
+--- Se abre SIEMPRE antes de arrancar una ISO, desde CRUZ en la lista o desde el menu
+--- del juego. Un juego de PS2 no se lanza a ciegas: aqui se ve, antes de arrancar, en
+--- que tarjeta se va a guardar la partida, de que fichero sale, y con que lanzador.
+--- Devuelve true si hay que lanzar, false si se ha cancelado.
+function menu_lanzamiento(nombre_iso)
+	if nombre_iso == nil then return false end
+	VMC_CFG_LEER()
+	LANZADOR_LEER()
+	local id = VMC_ID(nombre_iso)
+
+	-- Estado de partida, tal y como quedo la ultima vez. VMC.cfg es la memoria del
+	-- "last vmc for this game": una linea "<ID>=<ruta>".
+	local usar_vmc = true
+	if id == nil or VMC_JUEGOS[id] == "none" then usar_vmc = false end
+
+	local elegida = nil
+	if id ~= nil then
+		local v = VMC_JUEGOS[id]
+		if v ~= nil and v ~= "none" and doesFileExist(v) then
+			elegida = v
+		else
+			-- Ninguna eleccion guardada: se propone la primera tarjeta DE ESTE JUEGO.
+			local cand, propias = VMC_CANDIDATAS(id)
+			if propias >= 1 then elegida = cand[1] end
+		end
+	end
+
+	local function et_tarjeta()
+		if usar_vmc == false then return "Memory card : Real PS2 card" end
+		return "Memory card : VMC card"
+	end
+	local function et_fichero()
+		if usar_vmc == false then return "VMC file    : -" end
+		if elegida == nil then return "VMC file    : none yet   (X to pick or create)" end
+		return "VMC file    : ".. elegida
+	end
+	local function et_lanzador()
+		if LANZADOR_ES_OPL(nombre_iso) then return "Launch with : OPL" end
+		return "Launch with : Neutrino"
+	end
+
+	local etiquetas = {et_tarjeta(), et_fichero(), et_lanzador(), "Start game", "Cancel"}
+	local I_TARJETA, I_FICHERO, I_LANZADOR, I_START, I_CANCEL = 1, 2, 3, 4, 5
+
+	local function repintar()
+		etiquetas[I_TARJETA] = et_tarjeta()
+		etiquetas[I_FICHERO] = et_fichero()
+		etiquetas[I_LANZADOR] = et_lanzador()
+	end
+
+	local function guardar()
+		if id == nil then return end
+		if usar_vmc == false then
+			VMC_JUEGOS[id] = "none"
+		elseif elegida ~= nil then
+			VMC_JUEGOS[id] = elegida
+		else
+			VMC_JUEGOS[id] = nil
+		end
+		VMC_CFG_GUARDAR()
+	end
+
+	local sel, abierto, lanzar = 1, true, false
+	JOYSTICK_LIMITE = control_FPS(1)
+	while abierto do
+		CONTROL.FPS = Screen.getFPS(1)
+		capturar(JOYSTICK_LIMITE)
+		dibujar_fondos()
+		submenu_selector(etiquetas, sel,
+			"-Launch ".. NOMBRE_VISIBLE(15, nombre_iso, 1) .."-",
+			56, 344, true, CONTROL.ANCHO // 2,
+			{TEXT_GEN[5], TEXT_GEN[6]}, true, false, {}, nil)
+		refrescar(false)
+
+		if Pads.check(PAD, PAD_CROSS) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_EJECUTAR, 1, false, nil)
+			if sel == I_FICHERO and usar_vmc == true then
+				local escogida = VMC_LISTA_ELEGIR(nombre_iso)
+				if escogida ~= nil then elegida = escogida end
+				repintar()
+				JOYSTICK_LIMITE = control_FPS(1)
+			elseif sel == I_START then
+				-- Con "VMC card" pero sin fichero no se arranca: seria una partida
+				-- que se pierde al apagar, sin que nada lo hubiera dicho. El cursor
+				-- se va a la linea que falta.
+				if usar_vmc == true and elegida == nil then
+					sel = I_FICHERO
+					JOYSTICK_LIMITE = control_FPS(1)
+				else
+					guardar()
+					lanzar = true
+					abierto = false
+				end
+			elseif sel == I_CANCEL then
+				abierto = false
+			else
+				JOYSTICK_LIMITE = control_FPS(1)
+			end
+		elseif (Pads.check(PAD, PAD_TRIANGLE) or Pads.check(PAD, PAD_CIRCLE))
+		       and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_CANCELAR, 1, false, nil)
+			abierto = false
+		elseif sel == I_TARJETA and CONTROL.JOYSTICK_ON == false
+		       and (Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT)
+		            or Left_X <= -90 or Left_X >= 90) then
+			repro_sfx(S_MOVER, 1, false, nil)
+			usar_vmc = (usar_vmc == false)
+			repintar()
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif sel == I_LANZADOR and CONTROL.JOYSTICK_ON == false
+		       and (Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT)
+		            or Left_X <= -90 or Left_X >= 90) then
+			repro_sfx(S_MOVER, 1, false, nil)
+			if LANZADOR_ES_OPL(nombre_iso) then
+				LANZADOR_JUEGOS[nombre_iso] = nil
+			else
+				LANZADOR_JUEGOS[nombre_iso] = "opl"
+			end
+			LANZADOR_GUARDAR()
+			repintar()
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif (Pads.check(PAD, PAD_UP) or Left_Y <= -90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, false)
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif (Pads.check(PAD, PAD_DOWN) or Left_Y >= 90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, true)
+			JOYSTICK_LIMITE = control_FPS(1)
+		end
+	end
+	JOYSTICK_LIMITE = control_FPS(1)
+	return lanzar
+end
+
+--- Menu del juego seleccionado. TRIANGULO en la lista. ---------------------------------
+--- Antes, TRIANGULO intercambiaba caratula y captura, y era la unica cosa que hacia.
+--- Las demas acciones por juego estaban repartidas en combinaciones que nada anunciaba
+--- -- CIRCULO+TRIANGULO abria los ajustes de PS1, de PS2 o el explorador de APPS segun
+--- el sistema. Nadie las encuentra por casualidad.
+--- Ahora TRIANGULO abre esta lista: el intercambio de arte sigue ahi, acompanado de lo
+--- que aplique al sistema en curso, y del borrado. Las combinaciones antiguas siguen
+--- funcionando para quien las conozca.
+function menu_juego()
+	if LISTAS.ROMS == nil or LISTAS.ROMS[LISTAS.INDICE] == nil then return end
+	local etiquetas, acciones = {}, {}
+
+	local function anadir(texto, accion)
+		etiquetas[#etiquetas + 1] = texto
+		acciones[#acciones + 1] = accion
+	end
+
+	if LISTAS.MOSTRAR >= LISTAS.ART_LIMITE then
+		local cual = "cover"
+		if LISTAS.SCREENSHOT_ON == false then cual = "screenshot" end
+		anadir("Show ".. cual, function()
+			LISTAS.SCREENSHOT_ON = (LISTAS.SCREENSHOT_ON == false)
+		end)
+	end
+
+	if LISTAS.IDENTIDAD == 13 then
+		anadir("File browser", function() animaciones(nil, true); exporer_apps() end)
+	elseif LISTAS.IDENTIDAD == 14 then
+		if string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) ~= ".elf" then
+			anadir("PS1 settings", function()
+				animaciones(nil, true); menu_pops(LISTAS.ROMS[LISTAS.INDICE]) end)
+		end
+	elseif LISTAS.IDENTIDAD == 15 then
+		if string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) ~= ".elf" then
+			anadir("PS2 settings", function()
+				animaciones(nil, true); menu_neutrino(LISTAS.ROMS[LISTAS.INDICE]) end)
+		end
+	end
+
+	-- Lanzar. Todo lo que hay que decidir antes de arrancar una ISO de PS2 -- tarjeta
+	-- de memoria, fichero VMC y lanzador -- vive en el menu de lanzamiento, que es el
+	-- mismo que abre CRUZ desde la lista.
+	--
+	-- Aqui habia ademas una linea "VMC" y otra "How to launch". Eran la misma decision
+	-- dicha en dos sitios, cada uno con su forma de guardarla, y ninguno de los dos
+	-- aparecia al lanzar el juego: se elegia a ciegas y se descubria despues.
+	if LISTAS.IDENTIDAD == 15
+	   and string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) == ".iso" then
+		anadir("Launch this game...", function() run_game() end)
+	end
+
+	-- El borrado va en ultimo lugar, lejos del cursor al abrir el menu.
+	if RUTA_JUEGO_ACTUAL() ~= nil then
+		anadir("Delete this game", borrar_juego_actual)
+	end
+
+	if #etiquetas == 0 then return end
+
+	local sel, abierto = 1, true
+	JOYSTICK_LIMITE = control_FPS(1)
+	while abierto do
+		CONTROL.FPS = Screen.getFPS(1)
+		capturar(JOYSTICK_LIMITE)
+		dibujar_fondos()
+		-- Panel alto y fijo, no ajustado al numero de entradas.
+		--
+		-- Antes se calculaba "170 - n*12" arriba y "150 + n*12" abajo, lo que da una
+		-- altura de n*24-20 para un contenido que ocupa n*24+12: el texto se salia por
+		-- abajo y los botones de respuesta caian encima de la ultima linea. Con un
+		-- panel de 56 a 344 todo cabe hasta once entradas, el fondo negro cubre lo que
+		-- haya detras, y "select / cancel" quedan abajo y no en medio del texto.
+		submenu_selector(etiquetas, sel,
+			"-".. NOMBRE_VISIBLE(LISTAS.IDENTIDAD, LISTAS.ROMS[LISTAS.INDICE], 1) .."-",
+			56, 344, true, CONTROL.ANCHO // 2,
+			{TEXT_GEN[5], TEXT_GEN[6]}, true, false, {}, nil)
+		refrescar(false)
+
+		if Pads.check(PAD, PAD_CROSS) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_EJECUTAR, 1, false, nil)
+			abierto = false
+			JOYSTICK_LIMITE = control_FPS(1)
+			acciones[sel]()
+		elseif (Pads.check(PAD, PAD_TRIANGLE) or Pads.check(PAD, PAD_CIRCLE))
+		       and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_CANCELAR, 1, false, nil)
+			abierto = false
+		elseif (Pads.check(PAD, PAD_UP) or Left_Y <= -90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, false)
+			JOYSTICK_LIMITE = control_FPS(1)
+		elseif (Pads.check(PAD, PAD_DOWN) or Left_Y >= 90) and CONTROL.JOYSTICK_ON == false then
+			repro_sfx(S_MOVER, 1, false, nil)
+			sel = cambiar_valor(sel, 1, #etiquetas, 1, true)
+			JOYSTICK_LIMITE = control_FPS(1)
+		end
+	end
+	JOYSTICK_LIMITE = control_FPS(1)
+end
+
+--- Ruta REAL del fichero del juego seleccionado, para poder borrarlo. ----------------
+--- Cada sistema guarda su origen de forma distinta, de ahi el reparto.
+--- Devuelve nil cuando no se puede establecer con certeza: mas vale no ofrecer el
+--- borrado que borrar el fichero equivocado.
+function RUTA_JUEGO_ACTUAL()
+    local identidad = LISTAS.IDENTIDAD
+    local nombre = LISTAS.ROMS[LISTAS.INDICE]
+    if nombre == nil then return nil end
+
+    if identidad == 13 then
+        -- APPS: la lista solo guarda el nombre, la ruta esta aparte.
+        if LISTAS.DIR_FULL_APP ~= nil then return LISTAS.DIR_FULL_APP[LISTAS.INDICE] end
+        return nil
+    end
+
+    local clave = tostring(identidad) .."|".. nombre
+    if ORIGEN_DIR ~= nil and ORIGEN_DIR[clave] ~= nil then
+        return ORIGEN_DIR[clave] .. nombre
+    end
+    if identidad <= 12 then
+        local dir_sistemas = {"Sega Megadrive"; "Sega Master System"; "Sega Game Gear";
+        "Nintendo Famicom"; "Nintendo Game Boy"; "Nintendo Game Boy Color";
+        "Nintendo Game Boy Advance"; "Atari 2600"; "Atari Lynx"; "Sega SG-1000";
+        "Neo Geo Pocket"; "Nintendo Super Famicom";}
+        return RUTA_ROM(identidad, dir_sistemas[identidad], nombre)
+    end
+    return nil
+end
+
+--- Borrar el juego seleccionado, con confirmacion. -----------------------------------
+--- SELECT + CUADRADO en la lista. Se muestra la ruta COMPLETA antes de preguntar: es
+--- la unica forma de que el usuario vea que se va a borrar el fichero que cree, y no
+--- otro con el mismo nombre en otra unidad.
+--- La respuesta por defecto es NO, y se exige mantener SELECT: un borrado no debe
+--- poder ocurrir por un boton pulsado sin querer.
+function borrar_juego_actual()
+    local nombre = LISTAS.ROMS[LISTAS.INDICE]
+    if nombre == nil then return false end
+    local ruta = RUTA_JUEGO_ACTUAL()
+
+    local titulo = "Delete this game?"
+    local lineas = {}
+    if ruta == nil then
+        titulo = "Cannot delete"
+        lineas = {NOMBRE_VISIBLE(LISTAS.IDENTIDAD, nombre, 1),
+                  "the file location is not known for this system"}
+    else
+        lineas = {NOMBRE_VISIBLE(LISTAS.IDENTIDAD, nombre, 1), salida_texto_dir(ruta, true)}
+        local tam = ROM_TAMANO(ruta)
+        if tam ~= nil then
+            lineas[#lineas + 1] = string.format("%.2f GB - this cannot be undone",
+                                                tam / (1024 * 1024 * 1024))
+        end
+    end
+
+    local confirmar, salir = false, false
+    JOYSTICK_LIMITE = control_FPS(1)
+    while salir == false do
+        CONTROL.FPS = Screen.getFPS(1)
+        capturar(JOYSTICK_LIMITE)
+        dibujar_fondos()
+        local respuestas = {"DELETE", "cancel"}
+        if ruta == nil then respuestas = {" ", "cancel"} end
+        submenu_selector(lineas, nil, "-".. titulo .."-", 96, 300, true,
+                         CONTROL.ANCHO // 2, respuestas, false, false, {}, nil)
+        refrescar(false)
+        -- CUADRADO para confirmar, no CRUZ: CRUZ es la tecla con la que se ha
+        -- llegado hasta aqui desde el menu, y dejarla confirmar convertiria dos
+        -- pulsaciones seguidas en un borrado.
+        if ruta ~= nil and Pads.check(PAD, PAD_SQUARE) and CONTROL.JOYSTICK_ON == false then
+            confirmar, salir = true, true
+        elseif Pads.check(PAD, PAD_TRIANGLE) or Pads.check(PAD, PAD_CIRCLE) then
+            salir = true
+        end
+    end
+    JOYSTICK_LIMITE = control_FPS(1)
+    if confirmar == false then
+        repro_sfx(S_CANCELAR, 1, false, nil)
+        return false
+    end
+
+    local ok = pcall(System.removeFile, ruta)
+    ok = ok and (doesFileExist(ruta) == false)
+    boot_log("BORRA  ".. tostring(ruta) .." -> ".. tostring(ok))
+    boot_escribir()
+    if ok == false then
+        repro_sfx(S_CANCELAR, 1, false, nil)
+        return false
+    end
+    repro_sfx(S_EJECUTAR, 1, false, nil)
+
+    -- Que el juego desaparezca de la lista sin tener que reiniciar. El indice puede
+    -- quedar mas alla del final si era el ultimo.
+    media_indice_olvidar()
+    CORES_CACHE = {}
+    recargar_una(LISTAS.IDENTIDAD)
+    LISTAS.ROMS = PRE_CARGADAS[LISTAS.IDENTIDAD]
+    if LISTAS.INDICE > #LISTAS.ROMS then LISTAS.INDICE = #LISTAS.ROMS end
+    if LISTAS.INDICE < 1 then LISTAS.INDICE = 1 end
+    indices_extras()
+    return true
+end
+
 function recargar_una(identidad)
 	PRE_CARGADAS[identidad] = crear_listas(identidad, PRE_CARGADAS[identidad])
 	LISTAS.IDENTIDAD = identidad
@@ -6343,7 +6864,15 @@ function crear_listas(identidad, lista)
 			if ES_RAIZ_ATA(dirs[i_dir]) then fuente = "ATA" end
 			if dicho[fuente] == nil then
 				dicho[fuente] = true
-				CARGA_PASO(fuente .." scan ".. tostring(ROMS_DIR[identidad]))
+				-- La consola delante y el soporte detras: "SNES - Exfat". Se lee la
+				-- columna entera de un vistazo, que es lo que no pasaba con
+				-- "ATA scan snes" -- todas las lineas empezaban igual.
+				local sistema = string.upper(tostring(ROMS_DIR[identidad]))
+				if fuente == "ATA" then
+					CARGA_PASO(sistema .." - Exfat", "exfat")
+				else
+					CARGA_PASO(sistema .." - USB", "usb")
+				end
 			end
 			local buscar = System.listDirectory(dirs[i_dir])
 			if buscar ~= nil then
@@ -6638,6 +7167,11 @@ function crear_listas(identidad, lista)
 									vistos_ps2[buscar[contador].name] = true
 									table.insert(encontrados, buscar[contador].name)
 									ORIGEN_DIR["15|".. buscar[contador].name] = buscar_directorio[buscar_ps2] .."/"
+									-- ES_ATA lee ORIGEN, no ORIGEN_DIR: sin esta linea un
+									-- ISO del disco interno no llevaba su etiqueta [ATA] en
+									-- la lista, y el journal escribia "desde disco interno
+									-- (ATA) : false" para un juego que si venia de ahi.
+									ORIGEN["15|".. buscar[contador].name] = buscar_directorio[buscar_ps2]
 									table.insert(db_ps2b, {fichero = buscar[contador].name,
 										titulo = NOMBRE_VISIBLE(15, buscar[contador].name)})
 								end
@@ -6973,7 +7507,10 @@ function ejecutar_iso(nombre)
 
 	-- Cargar configuraciones de "VMC". -------------------------------------------------
 	if ps2_config[1] ~= nil and string.match(ps2_config[1], "-mc%d=.+") then
-		vmc = ps2_config[1]
+		-- El ".vmcd" de este menu ya no se lee: la tarjeta sale de VMC.cfg, que es el
+		-- unico sitio donde se decide. Un fichero que sobrevive de antes no debe poder
+		-- imponer una tarjeta que el menu del juego no muestra.
+		vmc = nil
 	else
 		vmc = nil
 	end
@@ -7067,21 +7604,37 @@ function ejecutar_iso(nombre)
 			directorio_iso = ORIGEN_DIR["15|".. nombre]
 			if ES_RAIZ_ATA(directorio_iso) then selector_bsd = 3 end
 		end
+		-- El nombre REAL de la unidad, del lado de Enceladus, ANTES de reescribirlo.
+		-- Todo lo que este programa cree o copie tiene que usar este; solo los
+		-- argumentos que se le pasan a Neutrino llevan el nombre reescrito.
+		local unidad_real = "mass:"
+		local pfx_real = string.find(directorio_iso, ":", 1, true)
+		if pfx_real ~= nil then unidad_real = string.sub(directorio_iso, 1, pfx_real) end
+
 		-- Con "-bsd=ata" Neutrino solo carga ata_bd: el disco interno es la UNICA
 		-- unidad de bloque y se monta como "mass:". Hay que reescribir el prefijo.
 		if selector_bsd == 3 then
 			local pfx = string.find(directorio_iso, ":", 1, true)
 			if pfx ~= nil then directorio_iso = "mass:".. string.sub(directorio_iso, pfx+1) end
 		end
+
 		-- VMC automatica por juego, salvo que ya haya una tarjeta manual fijada.
-		-- Se coloca en la MISMA unidad que la ISO (prefijo de directorio_iso, ya
-		-- reescrito a "mass:" si es ATA). Neutrino rellena la tarjeta la 1a vez.
+		--
+		-- Aqui estaba el fallo que devolvia al menu de la PS2. La tarjeta se creaba
+		-- con el prefijo YA reescrito, "mass:", pero quien la crea es este programa,
+		-- bajo Enceladus, donde "mass:" es el PRIMER dispositivo BDM -- la llave USB.
+		-- Resultado: los 8 MB de la tarjeta se escribian en la llave (de ahi que
+		-- parpadeara), y a Neutrino se le pasaba "-mc0=mass:/VMC/..." que con
+		-- -bsd=ata apunta al disco interno, donde el fichero no existe. Neutrino no
+		-- podia abrir la tarjeta y salia.
+		-- Se crea en la unidad real y solo despues se reescribe el prefijo.
 		local vmc_auto = nil
 		if vmc == nil then
-			local pfx_v = string.find(directorio_iso, ":", 1, true)
-			local unidad_v = "mass:"
-			if pfx_v ~= nil then unidad_v = string.sub(directorio_iso, 1, pfx_v) end
-			vmc = VMC_AUTO(nombre, unidad_v)
+			vmc = VMC_AUTO(nombre, unidad_real)
+			if vmc ~= nil and selector_bsd == 3 then
+				local pv = string.find(vmc, ":", 1, true)
+				if pv ~= nil then vmc = "-mc0=mass:".. string.sub(vmc, pv+1) end
+			end
 			vmc_auto = vmc
 		end
 		log_lanzamiento("PS2  Neutrino", {
@@ -7656,7 +8209,7 @@ end
 
 --- Determina el volumen de los sonidos y la música. ------------------------------------
 function set_volume()
-	Sound.setADPCMVolume(1, OPCIONES.SOUND_VOLUME)
+	SFX_VOLUMEN(OPCIONES.SOUND_VOLUME)
 	Sound.setADPCMVolume(3, OPCIONES.SOUND_VOLUME)
 	if OPCIONES.SOUND_VOLUME >= 10 then
 		Sound.setADPCMVolume(2, OPCIONES.SOUND_VOLUME-9)
@@ -9011,13 +9564,13 @@ function dibujar_demo(selector_elementos, elementos_pos_new, elementos_tam_new, 
 			Graphics.drawRect(elementos_pos_new[7]-5, elementos_pos_new[8]-5+CONTROL.Y_FIX_PAL, elementos_tam_new[7]+10, elementos_tam_new[8]+10, COLOR.NEGRO_T)
 			Graphics.drawRect((CONTROL.ANCHO-(elementos_pos_new[7]+elementos_tam_new[7]))-5, elementos_pos_new[8]-5+CONTROL.Y_FIX_PAL, elementos_tam_new[7]+10, elementos_tam_new[8]+10, COLOR.NEGRO_T)
 		end
-		dibujar_arte(nil, false, LISTAS.COVER_DEFAULT, elementos_pos_new[7], elementos_pos_new[8]+CONTROL.Y_FIX_PAL, elementos_tam_new[7], elementos_tam_new[8], lis_ext[9], lis_ext[10], lis_ext[11], lis_ext[12], nil)
-		dibujar_arte(nil, false, LISTAS.COVER_DEFAULT, (CONTROL.ANCHO-(elementos_pos_new[7]+elementos_tam_new[7])), elementos_pos_new[8]+CONTROL.Y_FIX_PAL, elementos_tam_new[7], elementos_tam_new[8], lis_ext[9], lis_ext[10], lis_ext[11], lis_ext[12], nil)
+		dibujar_arte(LISTAS.COVER_ART, LISTAS.EXISTE_COV, LISTAS.COVER_DEFAULT, elementos_pos_new[7], elementos_pos_new[8]+CONTROL.Y_FIX_PAL, elementos_tam_new[7], elementos_tam_new[8], lis_ext[9], lis_ext[10], lis_ext[11], lis_ext[12], nil)
+		dibujar_arte(LISTAS.COVER_ART, LISTAS.EXISTE_COV, LISTAS.COVER_DEFAULT, (CONTROL.ANCHO-(elementos_pos_new[7]+elementos_tam_new[7])), elementos_pos_new[8]+CONTROL.Y_FIX_PAL, elementos_tam_new[7], elementos_tam_new[8], lis_ext[9], lis_ext[10], lis_ext[11], lis_ext[12], nil)
 	end
 
 	-- Vista previa del arte extra. -----------------------------------------------------
 	if estado_elementos_new[3] == true then
-		dibujar_arte(nil, false, LISTAS.SCREENSHOT_DEFAULT, elementos_pos_new[5], elementos_pos_new[6]+CONTROL.Y_FIX_PAL, elementos_tam_new[5], elementos_tam_new[6], lis_ext[5], lis_ext[6], lis_ext[7], lis_ext[8], false)
+		dibujar_arte(LISTAS.SCREENSHOT, LISTAS.EXISTE_SCR, LISTAS.SCREENSHOT_DEFAULT, elementos_pos_new[5], elementos_pos_new[6]+CONTROL.Y_FIX_PAL, elementos_tam_new[5], elementos_tam_new[6], lis_ext[5], lis_ext[6], lis_ext[7], lis_ext[8], false)
 	end
 
 	-- Vista previa del fondo de lista. -------------------------------------------------
@@ -9026,22 +9579,37 @@ function dibujar_demo(selector_elementos, elementos_pos_new, elementos_tam_new, 
 	end
 
 	-- Vista previa de las listas de juegos. --------------------------------------------
+	--
+	-- Con los nombres REALES del sistema en curso, no trece veces la misma palabra de
+	-- ejemplo. Aqui se esta colocando una lista y decidiendo su ancho: nombres todos
+	-- del mismo largo no dicen nada sobre lo que se va a ver, y un titulo de verdad
+	-- ensena enseguida donde se corta. Si no hay lista cargada se cae en los de antes.
+	local function nombre_ejemplo(n)
+		if LISTAS.ROMS ~= nil and #LISTAS.ROMS > 0 and LISTAS.INDICE ~= nil then
+			local idx = ((LISTAS.INDICE + n - 2) % #LISTAS.ROMS) + 1
+			if LISTAS.ROMS[idx] ~= nil then
+				return NOMBRE_VISIBLE(LISTAS.IDENTIDAD, LISTAS.ROMS[idx], 1)
+			end
+		end
+		return n ..".".. TEXT_M_STI[1]
+	end
+
 	local lista_ejemplo = {}
 	if estado_elementos_new[4] == false and estado_elementos_new[1] == true then
-		for agregar = 1, largo_lista do table.insert(lista_ejemplo, agregar ..".".. TEXT_M_STI[1]) end
+		for agregar = 1, largo_lista do table.insert(lista_ejemplo, nombre_ejemplo(agregar)) end
 		local espacio_linea = elementos_pos_new[2]+((0)*24)+CONTROL.Y_FIX_PAL
 		for contador = 1, largo_lista, 1 do
 			if contador == 1 then
-				Font.ftPrint(CONTROL.fontARCA, elementos_pos_new[1]+3, espacio_linea, 0, elementos_tam_new[1]-6, 25, string.sub(lista_ejemplo[contador], 1, -5), CAMBIOS_EMUS.COLOR_EMU)
+				Font.ftPrint(CONTROL.fontARCA, elementos_pos_new[1]+3, espacio_linea, 0, elementos_tam_new[1]-6, 25, lista_ejemplo[contador], CAMBIOS_EMUS.COLOR_EMU)
 			else
-				Font.ftPrint(CONTROL.fontARCA, elementos_pos_new[1]+3, espacio_linea, 0, elementos_tam_new[1]-6, 25, string.sub(lista_ejemplo[contador], 1, -5), COLOR.BLANCO_LISTA)
+				Font.ftPrint(CONTROL.fontARCA, elementos_pos_new[1]+3, espacio_linea, 0, elementos_tam_new[1]-6, 25, lista_ejemplo[contador], COLOR.BLANCO_LISTA)
 			end
 			espacio_linea = elementos_pos_new[2]+((contador)*24)+CONTROL.Y_FIX_PAL
 		end
 
 	-- Vista previa de las listas de juegos en cover flow. ------------------------------
 	elseif estado_elementos_new[4] == true or estado_elementos_new[1] == false then
-		lista_ejemplo = {TEXT_M_STI[2], TEXT_M_STI[3], TEXT_M_STI[4]}
+		lista_ejemplo = {nombre_ejemplo(1), nombre_ejemplo(2), nombre_ejemplo(3)}
 		if estado_elementos_new[4] == true then
 			-- Vista previa / izquierda. ------------------------------------------------
 			Graphics.drawRect(elementos_pos_new[7], (elementos_pos_new[8]+elementos_tam_new[8])+10+CONTROL.Y_FIX_PAL, elementos_tam_new[7], 25, COLOR.NEGRO_T)
@@ -9072,7 +9640,10 @@ function dibujar_demo(selector_elementos, elementos_pos_new, elementos_tam_new, 
 	local message = {TEXT_M_STI[6], TEXT_M_STI[7], TEXT_M_STI[8], TEXT_M_STI[9], TEXT_M_STI[10], TEXT_M_STI[11]}
 
 	-- Vista previa de indicador para actualizar la lista. ------------------------------
-	if selector_elementos == 11 and estado_elementos_new[11] == true then
+	-- Se dibujaba SOLO mientras estaba seleccionado, asi que R3 podia estar en ON y no
+	-- aparecer por ninguna parte: no habia forma de verlo ni de colocarlo respecto a
+	-- los demas. Como todos los otros indicadores: si esta encendido, se ve.
+	if estado_elementos_new[11] == true then
 		dibujar_indicador(elementos_pos_new[21], elementos_pos_new[22], message[6], PAD_IMG.R3, 25, 25, 1, true)
 	end
 
@@ -9093,10 +9664,15 @@ function dibujar_demo(selector_elementos, elementos_pos_new, elementos_tam_new, 
 	if estado_elementos_new[12] == true then
 		dibujar_indicador(elementos_pos_new[23], elementos_pos_new[24], message[2], PAD_IMG.START, 32, 32, 2, true)
 	end
-	if selector_elementos ~= 11 then
-		-- Vista previa: indicadores / cambio de arte. ----------------------------------
+	do
+		-- Los tres indicadores de abajo tampoco dependen ya de cual este seleccionado:
+		-- desaparecian todos en cuanto se tocaba R3, que era justo el momento en que
+		-- hacia falta verlos para no ponerlo encima de ellos.
+		-- Vista previa: indicador del menu del juego. ----------------------------------
+		-- El rotulo tiene que ser el MISMO que en el menu real: aqui seguia diciendo
+		-- "Cambiar arte", que es lo que TRIANGULO hacia antes.
 		if estado_elementos_new[7] == true then
-			dibujar_indicador(elementos_pos_new[13], elementos_pos_new[14], message[3], PAD_IMG.TRIANGLE, 25, 25, 1, true)
+			dibujar_indicador(elementos_pos_new[13], elementos_pos_new[14], "Game Menu", PAD_IMG.TRIANGLE, 25, 25, 1, true)
 		end
 
 		-- Vista previa: indicadores / arte a pantalla completa. ------------------------
@@ -9112,7 +9688,7 @@ function dibujar_demo(selector_elementos, elementos_pos_new, elementos_tam_new, 
 
 	-- Vista previa de portadas / capturas / fondos. ------------------------------------
 	if estado_elementos_new[2] == true then
-		dibujar_arte(nil, false, LISTAS.COVER_DEFAULT, elementos_pos_new[3], elementos_pos_new[4]+CONTROL.Y_FIX_PAL, elementos_tam_new[3], elementos_tam_new[4], lis_ext[1], lis_ext[2], lis_ext[3], lis_ext[4], false)
+		dibujar_arte(LISTAS.COVER_ART, LISTAS.EXISTE_COV, LISTAS.COVER_DEFAULT, elementos_pos_new[3], elementos_pos_new[4]+CONTROL.Y_FIX_PAL, elementos_tam_new[3], elementos_tam_new[4], lis_ext[1], lis_ext[2], lis_ext[3], lis_ext[4], false)
 	end
 
 	-- Vista previa del logo. -----------------------------------------------------------
@@ -9187,8 +9763,22 @@ function editor_tema()
 
 	-- Cambio entre elementos activados y desactivados. ---------------------------------
 	local function estado(selector_X_Y, selector_elementos, lado, estado_elementos_new)
+		-- Busca el siguiente elemento ACTIVO. Si no hay ninguno, se para.
+		--
+		-- Sin ese limite la consola se congela, y no hace falta nada raro para llegar
+		-- ahi: basta con desactivar todos los elementos desde el editor. El bucle solo
+		-- sabia salir al encontrar un elemento a true, asi que con todos a false daba
+		-- vueltas para siempre, sin dibujar ni leer el mando. Es exactamente lo que
+		-- pasa al entrar en "active elements" y apagarlos.
 		local buscar = true
+		local vueltas = 0
+		local limite = (#estado_elementos_new * 2) + 2
 		while buscar do
+			vueltas = vueltas + 1
+			if vueltas > limite then
+				-- Ninguno activo: se deja el que estaba y se sale.
+				break
+			end
 			if lado == true then
 				selector_elementos = cambiar_valor(selector_elementos, 1, #estado_elementos_new, 1, true)
 			elseif lado == false then
@@ -9528,7 +10118,7 @@ function editor_tema()
 				ver_controles(true)
 
 			-- Cambia las posiciones y tamaños de los elementos. ------------------------
-			elseif (Pads.check(PAD, PAD_DOWN) or Pads.check(PAD, PAD_UP) or Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT) or (Left_Y ~= 1 or Left_X ~= 1) or Pads.check(PAD, PAD_L2) or Pads.check(PAD, PAD_R2)) and CONTROL.JOYSTICK_ON == false then
+			elseif (Pads.check(PAD, PAD_DOWN) or Pads.check(PAD, PAD_UP) or Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT) or PALANCA(Left_Y) or PALANCA(Left_X) or Pads.check(PAD, PAD_L2) or Pads.check(PAD, PAD_R2)) and CONTROL.JOYSTICK_ON == false then
 				-- Cambiar el salto de píxeles. -----------------------------------------
 				if Pads.check(PAD, PAD_R2) then
 					velocidad = cambiar_valor(velocidad, 1, 10, 1, true)
@@ -9562,7 +10152,7 @@ function editor_tema()
 				if cambio_tama_pos == true then
 					set_aspect()
 				end
-				local kabal = 1 if (Left_Y ~= 1 or Left_X ~= 1) and not (Pads.check(PAD, PAD_R2) or Pads.check(PAD, PAD_L2)) then
+				local kabal = 1 if (PALANCA(Left_Y) or PALANCA(Left_X)) and not (Pads.check(PAD, PAD_R2) or Pads.check(PAD, PAD_L2)) then
 					kabal = 2
 				end
 				if Pads.check(PAD, PAD_R2) or Pads.check(PAD, PAD_L2) then
@@ -9642,7 +10232,7 @@ function editor_tema()
 				JOYSTICK_LIMITE = control_FPS(1)
 
 			-- Moverse entre los elementos del submenú. ---------------------------------
-			elseif (Pads.check(PAD, PAD_DOWN) or Pads.check(PAD, PAD_UP) or Left_Y ~= 1) and CONTROL.JOYSTICK_ON == false then
+			elseif (Pads.check(PAD, PAD_DOWN) or Pads.check(PAD, PAD_UP) or PALANCA(Left_Y)) and CONTROL.JOYSTICK_ON == false then
 				if (Pads.check(PAD, PAD_UP) or Left_Y <= -90) then
 					selector_submenu = cambiar_valor(selector_submenu, 1, #nombres_opciones, 1, false)
 				elseif (Pads.check(PAD, PAD_DOWN) or Left_Y >= 90) then
@@ -9672,7 +10262,7 @@ function editor_tema()
 				JOYSTICK_LIMITE = control_FPS(1)
 
 			-- Cambiar el estado de los elementos del submenú. --------------------------
-			elseif (Pads.check(PAD, PAD_CROSS) or Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT) or Left_X ~= 1) and CONTROL.JOYSTICK_ON == false then
+			elseif (Pads.check(PAD, PAD_CROSS) or Pads.check(PAD, PAD_LEFT) or Pads.check(PAD, PAD_RIGHT) or PALANCA(Left_X)) and CONTROL.JOYSTICK_ON == false then
 				-- Activar / desactivar elemento. ---------------------------------------
 				repro_sfx(S_EJECUTAR, 1, false, nil)
 				if ((Pads.check(PAD, PAD_LEFT) or Left_X <= -90) or (Pads.check(PAD, PAD_RIGHT) or Left_X >= 90) or Pads.check(PAD, PAD_CROSS)) and selector_submenu <= 13 then

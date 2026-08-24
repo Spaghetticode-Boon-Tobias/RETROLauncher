@@ -16,7 +16,7 @@ function ps1_startup()
 	local pos_x, pos_y, esc_x, esc_y = ((CONTROL.ANCHO//2)-(364//2)), ((CONTROL.ALTO_F//2)-((272+CONTROL.Y_FIX_PAL)//2)-10), 364, (272+CONTROL.Y_FIX_PAL)
 
 	-- Reproducir sonido de inicio para PlayStation 1. ----------------------------------
-	Sound.setADPCMVolume(1, 0)
+	SFX_VOLUMEN(0)
 	Sound.setADPCMVolume(2, 0)
 	Sound.setADPCMVolume(3, 60)
 	if ps1_sfx ~= nil then Sound.playADPCM(3, ps1_sfx) end

@@ -2447,7 +2447,217 @@ end
 --- Poner a false para volver al comportamiento clasico (tarjeta manual o real).
 VMC_AUTO_ON = true
 
---- ID normalizado del juego a partir del nombre del fichero de la ISO. ----------------
+--- Con que se lanza cada ISO de PS2: Neutrino o OPL. ---------------------------------
+--- Se guarda por juego en "System/Config/Launcher.cfg", una linea "<fichero>=opl".
+--- Solo se anota lo que se aparta de la norma: sin linea, Neutrino.
+---
+--- La eleccion existia ya, pero habia que MANTENER CRUZ+CIRCULO al lanzar, o poner
+--- RUN_DEFAULT a 1 para que preguntara en cada juego. Ninguna de las dos se descubre
+--- sola, y una combinacion de botones no es un ajuste.
+LANZADOR_JUEGOS = {}
+LANZADOR_LEIDO = false
+
+function LANZADOR_FICHERO()
+	return System.currentDirectory() .."/System/Config/Launcher.cfg"
+end
+
+function LANZADOR_LEER()
+	if LANZADOR_LEIDO == true then return end
+	LANZADOR_LEIDO = true
+	local f = LANZADOR_FICHERO()
+	if doesFileExist(f) == false then return end
+	pcall(function()
+		local h = System.openFile(f, FREAD)
+		System.seekFile(h, 0, SET)
+		local t = System.readFile(h, System.sizeFile(h))
+		System.closeFile(h)
+		if t == nil then return end
+		for linea in string.gmatch(t .."\n", "([^\n]*)\n") do
+			local clave, valor = string.match(linea, "^([^=]+)=(.*)$")
+			if clave ~= nil then
+				valor = string.gsub(valor, "%s+$", "")
+				if valor ~= "" then LANZADOR_JUEGOS[clave] = valor end
+			end
+		end
+	end)
+end
+
+function LANZADOR_GUARDAR()
+	pcall(function()
+		local t = ""
+		for juego, valor in pairs(LANZADOR_JUEGOS) do
+			t = t .. juego .."=".. valor .."\n"
+		end
+		local h = System.openFile(LANZADOR_FICHERO(), FCREATE)
+		System.writeFile(h, t, string.len(t))
+		System.closeFile(h)
+	end)
+end
+
+--- True si ESTE juego debe lanzarse con OPL en vez de Neutrino. -----------------------
+function LANZADOR_ES_OPL(nombre)
+	if nombre == nil then return false end
+	LANZADOR_LEER()
+	return LANZADOR_JUEGOS[nombre] == "opl"
+end
+
+--- Tarjeta virtual: UN solo ajuste, por juego, sin ambiguedad. -----------------------
+--- "System/Config/VMC.cfg" guarda una linea por juego, "<ID>=<valor>", donde el valor
+--- es una de estas tres cosas:
+---
+---   (ausente)               automatico -- se busca una tarjeta cuyo nombre empiece
+---                           por el ID, en el VMC de CADA unidad montada; si no hay
+---                           ninguna, se crea en la unidad de la ISO.
+---   none                    ningun "-mc0=": Neutrino usa las tarjetas REALES.
+---   mass1:/VMC/xxx.bin      esa tarjeta y ninguna otra.
+---
+--- Habia aqui un ajuste global "donde crear las tarjetas" ademas de esto, y un segundo
+--- selector de fichero que duplicaba el de Boon. Tres formas de decidir la misma cosa,
+--- ninguna de las cuales decia que fichero se iba a usar de verdad. Queda una.
+VMC_JUEGOS = {}
+VMC_CFG_LEIDO = false
+
+function VMC_CFG_FICHERO()
+	return System.currentDirectory() .."/System/Config/VMC.cfg"
+end
+
+function VMC_CFG_LEER()
+	if VMC_CFG_LEIDO == true then return end
+	VMC_CFG_LEIDO = true
+	local f = VMC_CFG_FICHERO()
+	if doesFileExist(f) == false then return end
+	pcall(function()
+		local h = System.openFile(f, FREAD)
+		System.seekFile(h, 0, SET)
+		local t = System.readFile(h, System.sizeFile(h))
+		System.closeFile(h)
+		if t == nil then return end
+		for linea in string.gmatch(t .."\n", "([^\n]*)\n") do
+			local clave, valor = string.match(linea, "^([^=]+)=(.*)$")
+			if clave ~= nil then
+				clave = string.gsub(clave, "%s+$", "")
+				valor = string.gsub(valor, "%s+$", "")
+				if valor ~= "" then VMC_JUEGOS[clave] = valor end
+			end
+		end
+	end)
+end
+
+function VMC_CFG_GUARDAR()
+	pcall(function()
+		local t = ""
+		for id, valor in pairs(VMC_JUEGOS) do
+			t = t .. id .."=".. valor .."\n"
+		end
+		local h = System.openFile(VMC_CFG_FICHERO(), FCREATE)
+		System.writeFile(h, t, string.len(t))
+		System.closeFile(h)
+	end)
+end
+
+--- Las unidades donde puede vivir una carpeta VMC. ------------------------------------
+function VMC_UNIDADES()
+	local out, vistos = {}, {}
+
+	local function anadir(dev)
+		if dev == nil or vistos[dev] == true then return end
+		if string.lower(string.sub(dev, 1, 4)) ~= "mass" then return end
+		vistos[dev] = true
+		out[#out + 1] = dev
+	end
+
+	-- EL SOPORTE DE ARRANQUE PRIMERO, y es todo el problema que habia aqui.
+	--
+	-- "BDM_DEVICES" no contiene la unidad desde la que corre el lanzador: se llena con
+	-- "if unidad ~= propio then table.insert(...)". Recorrerla sola dejaba fuera
+	-- justamente el disco donde esta el lanzador -- y donde estan las tarjetas. De ahi
+	-- que no se encontrara ninguna VMC, y que ni siquiera se ofreciera crearla en el
+	-- disco interno. El resto del programa ya lo hacia bien: RUTA_ART anade la unidad
+	-- propia antes de recorrer BDM_DEVICES.
+	local actual = System.currentDirectory()
+	local pos = string.find(actual, ":", 1, true)
+	if pos ~= nil then anadir(string.sub(actual, 1, pos)) end
+
+	if BDM_DEVICES ~= nil then
+		for i = 1, #BDM_DEVICES do anadir(BDM_DEVICES[i]) end
+	end
+	return out
+end
+
+--- Las formas en que un mismo ID puede estar escrito en un nombre de fichero. --------
+--- "SLES-51191" es la convencion de las tarjetas, "SLES_511.91" la de las ISO de OPL,
+--- y por el camino aparecen las dos con el otro separador. Comparar con una sola forma
+--- es lo que dejaba la lista vacia aunque la carpeta tuviera las tarjetas delante.
+function VMC_ID_VARIANTES(id)
+	if id == nil then return {} end
+	local reg, num = string.match(id, "^(%a%a%a%a)%-(%d%d%d%d%d)")
+	if reg == nil then return {string.lower(id)} end
+	local n3, n2 = string.sub(num, 1, 3), string.sub(num, 4, 5)
+	return {string.lower(reg .."-".. num),        -- SLES-51191
+	        string.lower(reg .."_".. num),        -- SLES_51191
+	        string.lower(reg .."_".. n3 ..".".. n2),   -- SLES_511.91
+	        string.lower(reg .."-".. n3 ..".".. n2),   -- SLES-511.91
+	        string.lower(reg .. num)}             -- SLES51191
+end
+
+--- TODAS las tarjetas de TODAS las unidades. -----------------------------------------
+--- Las que parecen ser de este juego van primero; las demas van detras en vez de
+--- desaparecer. Una lista vacia frente a una carpeta llena no informa de nada, y
+--- ademas hay quien nombra sus tarjetas a mano, sin ningun ID.
+--- Devuelve dos tablas: rutas, y si cada una corresponde al juego.
+function VMC_CANDIDATAS(id)
+	local propias, otras = {}, {}
+	local variantes = VMC_ID_VARIANTES(id)
+	local unidades = VMC_UNIDADES()
+	for i = 1, #unidades do
+		local dir = unidades[i] .."/VMC"
+		local c = System.listDirectory(dir)
+		if c ~= nil then
+			for j = 1, #c do
+				local n = c[j].name
+				if c[j].directory == false and string.lower(string.sub(n, -4)) == ".bin" then
+					local nlow = string.lower(n)
+					local mio = false
+					-- El ID puede estar en CUALQUIER parte del nombre, no solo al
+					-- principio. "SCES-50295 Dark Cloud Data (Europe).bin" empieza por
+					-- el ID, pero "Dark Cloud SCES-50295.bin" no, y es la misma partida.
+					-- Comparar solo el principio dejaba fuera la mitad de las tarjetas
+					-- nombradas a mano.
+					for v = 1, #variantes do
+						if string.find(nlow, variantes[v], 1, true) ~= nil then
+							mio = true
+						end
+					end
+					if mio then propias[#propias + 1] = dir .."/".. n
+					else otras[#otras + 1] = dir .."/".. n end
+				end
+			end
+		end
+	end
+	local todas = {}
+	for i = 1, #propias do todas[#todas + 1] = propias[i] end
+	for i = 1, #otras do todas[#todas + 1] = otras[i] end
+	return todas, #propias
+end
+
+--- Crea una tarjeta vacia de 8 MB y devuelve su ruta, o nil. --------------------------
+--- "fichero" es el nombre COMPLETO con su ".bin". Antes se recibia el ID y se le
+--- pegaba la extension aqui, lo que impedia elegir el nombre desde el menu.
+function VMC_CREAR(dev, fichero)
+	if dev == nil or fichero == nil then return nil end
+	local dir = dev .."/VMC"
+	if System.listDirectory(dir) == nil then pcall(System.createDirectory, dir) end
+	if System.listDirectory(dir) == nil then return nil end
+	local dest = dir .."/".. fichero
+	if doesFileExist(dest) then return dest end
+	local molde = RUTA_BIOS("vmc-template.bin", "")
+	if doesFileExist(molde) == false then return nil end
+	pcall(System.copyFile, molde, dest)
+	if doesFileExist(dest) then return dest end
+	return nil
+end
+
+--- ID normalizado del juego a partir del nombre del fichero de la ISO. ----------------------------
 --- "SCES_502.40.Extermination.iso" -> "SCES-50240", la convencion de OPL y de las
 --- carpetas de guardado. nil si el nombre no lleva un ID reconocible.
 function VMC_ID(nombre)
@@ -2460,39 +2670,85 @@ function VMC_ID(nombre)
 	return nil
 end
 
+--- El ID tal y como lo escribe OPL: "SCES_502.95". ------------------------------------
+--- Es la forma que llevan las ISO, y la que se usa para bautizar una tarjeta nueva, de
+--- modo que el nombre del fichero se parezca al del juego que tiene al lado.
+function VMC_ID_OPL(nombre)
+	local id = VMC_ID(nombre)
+	if id == nil then return nil end
+	local reg, num = string.match(id, "^(%a%a%a%a)%-(%d%d%d%d%d)")
+	if reg == nil then return id end
+	return reg .."_".. string.sub(num, 1, 3) ..".".. string.sub(num, 4, 5)
+end
+
+--- El titulo que va detras del ID en el nombre de la ISO. -----------------------------
+--- "SCES_502.95.Dark Cloud.iso" -> "Dark Cloud". Devuelve "" si no se reconoce nada,
+--- y en ese caso la tarjeta se queda solo con el ID y el numero.
+function VMC_TITULO(nombre)
+	if nombre == nil then return "" end
+	local t = nombre
+	t = string.gsub(t, "%.[Ii][Ss][Oo]$", "")
+	t = string.gsub(t, "^%a%a%a%a[_%- ]?%d%d%d%.?%d%d%.?", "")
+	t = string.gsub(t, "^%s+", "")
+	t = string.gsub(t, "%s+$", "")
+	-- Fuera todo lo que no sea seguro en un nombre de fichero en exFAT.
+	t = string.gsub(t, "[^%w%s%-_%(%)%[%]]", "")
+	if string.len(t) > 40 then t = string.sub(t, 1, 40) end
+	t = string.gsub(t, "%s+$", "")
+	return t
+end
+
+--- Nombre propuesto para una tarjeta nueva: "SCES_502.95_Dark Cloud-1.bin". -----------
+--- El numero del final lo mueve el usuario con arriba / abajo, para poder tener varias
+--- partidas del mismo juego sin que una pise a la otra.
+function VMC_NOMBRE_NUEVO(nombre, n)
+	local idopl = VMC_ID_OPL(nombre)
+	if idopl == nil then return nil end
+	if n == nil or n < 1 then n = 1 end
+	local titulo = VMC_TITULO(nombre)
+	if titulo == "" then return idopl .."-".. n ..".bin" end
+	return idopl .."_".. titulo .."-".. n ..".bin"
+end
+
 --- Devuelve el argumento "-mc0=<ruta>" para el juego, creando la tarjeta si falta.
 --- "unidad_iso" es el prefijo de unidad donde Neutrino leera la ISO, para poner la
 --- tarjeta en el MISMO soporte (con -bsd=ata todo es "mass:"). nil si no procede.
 function VMC_AUTO(nombre, unidad_iso)
 	if VMC_AUTO_ON ~= true then return nil end
+	VMC_CFG_LEER()
 	local id = VMC_ID(nombre)
 	if id == nil then return nil end
-	local dir = unidad_iso .."/VMC"
-	-- Busqueda por PREFIJO: VMCManager renombra las tarjetas a
-	-- "SLES-55242 Burnout Dominator (Europe).bin" - el ID va siempre delante,
-	-- asi que cualquier .bin que empiece por el ID es la tarjeta del juego.
-	local contenido = System.listDirectory(dir)
-	if contenido ~= nil then
-		local id_low = string.lower(id)
-		for i = 1, #contenido do
-			local n = contenido[i].name
-			if contenido[i].directory == false
-			   and string.lower(string.sub(n, -4)) == ".bin"
-			   and string.lower(string.sub(n, 1, string.len(id))) == id_low then
-				return "-mc0=".. dir .."/".. n
-			end
-		end
-	else
-		pcall(System.createDirectory, dir)
+
+	local elegido = VMC_JUEGOS[id]
+
+	-- "none" quiere decir NINGUNA tarjeta, y tiene que ganar sobre todo lo demas.
+	-- Aqui estaba el sinsentido: desactivar la tarjeta en el menu de Boon deja el
+	-- juego sin ".vmcd", o sea sin eleccion manual, y esta funcion lo tomaba por
+	-- "no ha elegido nada, le creo una". El juego arrancaba con una tarjeta que el
+	-- usuario acababa de quitar.
+	if elegido == "none" then return nil end
+
+	-- Una ruta concreta, si sigue existiendo.
+	if elegido ~= nil and doesFileExist(elegido) then
+		return "-mc0=".. elegido
 	end
-	-- Ninguna tarjeta todavia: crearla copiando el molde vacio. El nombre bonito
-	-- con titulo lo pondra VMCManager en el PC; el ID solo basta para asociarla.
-	local dest = dir .."/".. id ..".bin"
-	local molde = RUTA_BIOS("vmc-template.bin", "")
-	if doesFileExist(molde) then
-		pcall(System.copyFile, molde, dest)
-	end
-	if doesFileExist(dest) then return "-mc0=".. dest end
+
+	-- Automatico: la primera tarjeta que sea DE ESTE JUEGO.
+	--
+	-- VMC_CANDIDATAS devuelve ahora todos los ".bin" de las carpetas, para que la
+	-- lista del menu no aparezca vacia delante de una carpeta llena. Pero aqui no se
+	-- elige a ciegas: el segundo valor dice cuantas de las primeras llevan el ID del
+	-- juego, y solo esas pueden usarse sin que el usuario lo haya pedido. Coger la
+	-- primera de la carpeta seria arrancar con la partida de otro juego.
+	local cand, propias = VMC_CANDIDATAS(id)
+	if propias >= 1 then return "-mc0=".. cand[1] end
+
+	-- Ninguna tarjeta, y ninguna eleccion: el juego arranca SIN "-mc0=".
+	--
+	-- Antes se creaba una aqui mismo, en silencio, la primera vez que se lanzaba un
+	-- juego. Es justo lo que hacia el asunto incomprensible: aparecian tarjetas que
+	-- nadie habia pedido, en una unidad que nadie habia elegido. Crear una es ahora
+	-- una accion explicita del menu del juego, y solo eso.
 	return nil
 end
 
@@ -2847,7 +3103,43 @@ CARGA_RES_X, CARGA_RES_Y = 640, 448
 --- de un vistazo lo que ya esta hecho, y la ultima linea, marcada con ">", es
 --- exactamente aquello que no ha terminado.
 CARGA_LINEAS = {}
-CARGA_MAX_LINEAS = 22
+
+--- El texto va en los HUECOS de la imagen, sin taparla. --------------------------------
+--- LOADING.png mide 640x480 y se dibuja a 640x448. Midiendo sus pixeles opacos, lo que
+--- hay dibujado ocupa, ya en coordenadas de pantalla:
+---
+---     10..191   x  24..614   el logotipo
+---    231..263   x 212..427   la palabra "LOADING"
+---    331..440   x  12..628   los creditos: Neutrino, Enceladus, wLaunchELF,
+---                            POPStarter, RetroArch y OPL, cada uno con su autor
+---
+--- De ahi que solo queden DOS franjas enteramente libres, y son estas:
+---
+---    194..226   entre el logotipo y "LOADING"
+---    264..328   entre "LOADING" y los creditos
+---
+--- El panel negro de antes iba de 8 a 432 y se comia el principio del logotipo y la
+--- columna izquierda de los creditos. Ni el titulo ni el nombre de quien ha escrito lo
+--- que uno arranca merecen desaparecer detras de una lista de arranque.
+---
+--- Asi que la lista se reparte en esas dos franjas: el origen arriba y los pasos abajo
+--- en dos columnas. Caben diez pasos en vez de veintidos -- el historico entero sigue
+--- estando en RETROLauncher.log, que es su sitio; esto es solo por donde va.
+CARGA_LINEA_ALTO = 12
+
+CARGA_ORIGEN_BANDA_Y, CARGA_ORIGEN_BANDA_ALTO = 194, 32
+CARGA_ORIGEN_Y = 198
+
+CARGA_PASOS_BANDA_Y, CARGA_PASOS_BANDA_ALTO = 264, 64
+CARGA_PASOS_Y = 268
+CARGA_PASOS_FILAS = 5
+CARGA_COLUMNAS = {20, 330}
+CARGA_COL_ANCHO = 290
+
+CARGA_MAX_LINEAS = CARGA_PASOS_FILAS * #CARGA_COLUMNAS
+
+--- El soporte de cada paso, en paralelo con el texto: "exfat", "usb" o nil. ------------
+CARGA_TIPOS = {}
 
 function CARGA_PINTAR()
 	if CARGA_FONDO == nil then return end
@@ -2865,40 +3157,62 @@ function CARGA_PINTAR()
 		-- Llega hasta x=256. El "LOADING" de LOADING.png empieza en 212, asi que se
 		-- le come el principio: es el precio de que las lineas quepan enteras, y una
 		-- linea cortada no informa de nada. El cuerpo baja a 9 px por lo mismo.
-		local px = 24
-		local pw = 232
-		Graphics.drawRect(px, 8, pw, CARGA_RES_Y - 16, negro)
+		-- Amarillo el disco interno, cian la llave USB. Es la misma pareja de colores
+		-- en todo el programa, para no tener que leer la palabra: de un vistazo se ve
+		-- de donde sale cada sistema.
+		local amarillo = Color.new(255, 205, 0)
+		local cian = Color.new(0, 200, 255)
 
-		-- La lista, en cuerpo pequeno para que quepa en el panel.
+		-- Un velo oscuro SOLO sobre las dos franjas libres, para que el texto tenga
+		-- contraste sin tapar nada de la imagen.
+		local velo = Color.new(0, 0, 0, 150)
+		Graphics.drawRect(0, CARGA_ORIGEN_BANDA_Y, CARGA_RES_X, CARGA_ORIGEN_BANDA_ALTO, velo)
+		Graphics.drawRect(0, CARGA_PASOS_BANDA_Y, CARGA_RES_X, CARGA_PASOS_BANDA_ALTO, velo)
+
 		Font.ftSetPixelSize(CARGA_FUENTE, 9, 9)
-		local tx = px + 8
-		local tw = pw - 14
-		local y = 16
+
 		if MOSTRAR_ORIGEN == true then
 			local l1, l2 = ORIGEN_TEXTO()
-			Font.ftPrint(CARGA_FUENTE, tx, y, 6, tw, 14, l1, blanco)
-			Font.ftPrint(CARGA_FUENTE, tx, y + 14, 6, tw, 14, l2, gris)
-			y = y + 36
+			local col = cian
+			if BOOT_ES_ATA == true then col = amarillo end
+			Font.ftPrint(CARGA_FUENTE, 20, CARGA_ORIGEN_Y, 6, 600, CARGA_LINEA_ALTO, l1, col)
+			Font.ftPrint(CARGA_FUENTE, 20, CARGA_ORIGEN_Y + CARGA_LINEA_ALTO, 6, 600,
+				CARGA_LINEA_ALTO, l2, gris)
 		end
+
+		-- Los pasos, por columnas: se llena la primera de arriba abajo y se sigue en la
+		-- siguiente.
 		for i = 1, #CARGA_LINEAS do
-			local ultima = (i == #CARGA_LINEAS)
-			local marca, col = "  ", gris
-			if ultima then marca, col = "> ", blanco end
-			Font.ftPrint(CARGA_FUENTE, tx, y, 6, tw, 14, marca .. CARGA_LINEAS[i], col)
-			y = y + 14
+			local col_n = ((i - 1) // CARGA_PASOS_FILAS) + 1
+			local fila = (i - 1) % CARGA_PASOS_FILAS
+			local x = CARGA_COLUMNAS[col_n]
+			if x ~= nil then
+				local tipo = CARGA_TIPOS[i]
+				local marca, col = "  ", gris
+				if i == #CARGA_LINEAS then marca, col = "> ", blanco end
+				if tipo == "exfat" then col = amarillo
+				elseif tipo == "usb" then col = cian end
+				Font.ftPrint(CARGA_FUENTE, x, CARGA_PASOS_Y + (fila * CARGA_LINEA_ALTO), 6,
+					CARGA_COL_ANCHO, CARGA_LINEA_ALTO, marca .. CARGA_LINEAS[i], col)
+			end
 		end
 		Font.ftSetPixelSize(CARGA_FUENTE, 14, 14)
 	end)
 end
 
 --- Un paso del arranque: al log (volcado ya) y a la pantalla. -------------------------
-function CARGA_PASO(texto)
+--- "tipo" pinta la linea: "exfat" en amarillo, "usb" en cian, nil en gris. -------------
+function CARGA_PASO(texto, tipo)
 	-- Solo durante el arranque. Varias de las funciones instrumentadas -- recargar_todas
 	-- sobre todo -- se vuelven a llamar desde el menu, y sin esto el log creceria sin
 	-- fin y cada refresco de lista repintaria la pantalla de carga sobre el menu.
 	if CARGA_FONDO == nil then return end
 	CARGA_LINEAS[#CARGA_LINEAS + 1] = tostring(texto)
-	while #CARGA_LINEAS > CARGA_MAX_LINEAS do table.remove(CARGA_LINEAS, 1) end
+	CARGA_TIPOS[#CARGA_LINEAS] = tipo
+	while #CARGA_LINEAS > CARGA_MAX_LINEAS do
+		table.remove(CARGA_LINEAS, 1)
+		table.remove(CARGA_TIPOS, 1)
+	end
 	boot_log("CARGA  ".. tostring(texto))
 	boot_escribir()
 	-- Los dos buffers, para que lo que se ve sea lo mismo tras cualquier flip ajeno.
@@ -2910,8 +3224,21 @@ function CARGA_PASO(texto)
 end
 
 function CARGA_FIN()
+	-- Las imagenes se liberan; la FUENTE no. Y no es un descuido.
+	--
+	-- "Font.ftInit()" se llama dos veces: una aqui arriba, para poder escribir en la
+	-- pantalla de carga, y otra dentro de la tabla CONTROL, que es la del programa
+	-- original. CARGA_FUENTE se obtiene ANTES de esa segunda inicializacion, asi que
+	-- descargarla aqui destruye una referencia que ya no pertenece al FreeType en
+	-- curso -- y con ella se lleva el estado de "fontARCA" y "fontABC".
+	--
+	-- El sintoma no es un error sino un menu MUDO: el arranque llega hasta el final,
+	-- el bucle principal corre, y ningun "Font.ftPrint" dibuja nada. Pantalla negra
+	-- con el programa vivo detras. El journal termina en "entrando en el menu" y
+	-- parece que todo ha ido bien, que es lo que lo hace dificil de encontrar.
+	--
+	-- Una cara de fuente sin liberar no cuesta casi nada. Un menu invisible, todo.
 	pcall(function()
-		if CARGA_FUENTE ~= nil then Font.ftUnload(CARGA_FUENTE) end
 		if CARGA_FONDO ~= nil then Graphics.freeImage(CARGA_FONDO) end
 		if CARGA_LOADING ~= nil then Graphics.freeImage(CARGA_LOADING) end
 	end)
@@ -2966,21 +3293,93 @@ end
 Sound.setFormat(16, 48000, 3)
 
 --- Carga y verificación de sonidos. ----------------------------------------------------
+--- Y se apunta en el journal lo que ha cargado y cuanto pesa. -------------------------
+--- Sound.loadADPCM no dice por que falla, y audsrv_load_adpcm falla EN SILENCIO cuando
+--- SifAllocIopHeap no consigue el bloque: pide el fichero entero de una vez y el IOP
+--- tiene 2 MB contando los modulos. Un fichero que cabe de sobra en la SPU2 puede no
+--- cargar por eso -- una pista de 1,2 MB no cargo, y sin esta linea no hay manera de
+--- distinguir "no hay fichero", "el fichero no cabe" y "el volumen esta a cero".
 function verificar_sonidos(sonido, dir)
 	local actual = System.currentDirectory()
 	sonido = nil
 	if doesFileExist(actual .."/".. dir) then
+		local bytes = nil
+		pcall(function()
+			local h = System.openFile(actual .."/".. dir, FREAD)
+			bytes = System.sizeFile(h)
+			System.closeFile(h)
+		end)
 		sonido = Sound.loadADPCM(dir)
+		if boot_log ~= nil then
+			local estado = "handle nulo"
+			if sonido ~= nil then estado = "handle ".. tostring(sonido) end
+			boot_log("SONIDO ".. dir .."  ".. tostring(bytes) .." bytes  -> ".. estado)
+		end
 	end
 	return sonido
 end
 
+--- Sonido preferido, con respaldo. -----------------------------------------------------
+-- Los ficheros "2" son el juego de sonidos en uso. Los originales de Boon siguen
+-- en la carpeta y se cargan solos si los "2" faltan, asi que borrar un fichero "2"
+-- basta para volver al sonido de antes.
+function sonido_preferido(sonido, preferido, respaldo)
+	local elegido = verificar_sonidos(sonido, preferido)
+	if elegido == nil then
+		elegido = verificar_sonidos(sonido, respaldo)
+	end
+	return elegido
+end
+
 -- Carga de sonidos. --------------------------------------------------------------------
-S_MOVER = verificar_sonidos(S_MOVER, "System/Medias/Sound/Menu/move.adp");
-S_EJECUTAR = verificar_sonidos(S_EJECUTAR, "System/Medias/Sound/Menu/run.adp");
-S_CANCELAR = verificar_sonidos(S_CANCELAR, "System/Medias/Sound/Menu/back.adp");
-S_NETX = verificar_sonidos(S_NETX, "System/Medias/Sound/Menu/next.adp");
+S_MOVER = sonido_preferido(S_MOVER, "System/Medias/Sound/Menu/move2.adp", "System/Medias/Sound/Menu/move.adp");
+S_EJECUTAR = sonido_preferido(S_EJECUTAR, "System/Medias/Sound/Menu/run2.adp", "System/Medias/Sound/Menu/run.adp");
+S_CANCELAR = sonido_preferido(S_CANCELAR, "System/Medias/Sound/Menu/back2.adp", "System/Medias/Sound/Menu/back.adp");
+S_NETX = sonido_preferido(S_NETX, "System/Medias/Sound/Menu/next2.adp", "System/Medias/Sound/Menu/next.adp");
 S_MUSICA = verificar_sonidos(S_MUSICA, "System/Medias/Sound/Background/music.adp");
+if boot_log ~= nil and S_MUSICA == nil then
+	-- El nombre importa: "music0.adp" es el nombre que tiene la pista cuando esta
+	-- APAGADA, y es el unico que traia la instalacion. El programa solo busca
+	-- "music.adp", asi que de fabrica no suena nada de fondo -- no porque falle, sino
+	-- porque nunca estuvo encendida.
+	boot_log("SONIDO  sin musica de fondo: falta System/Medias/Sound/Background/music.adp"
+		.."  (music0.adp = pista apagada)")
+end
+
+--- Una voz SPU2 por sonido de menu. ----------------------------------------------------
+--- Los cuatro sonidos se reproducian en la voz 1: los 166 sitios que llaman a repro_sfx
+--- pasan "1". Y audsrv no mezcla dos sonidos en una voz -- audsrv_ch_play_adpcm mira el
+--- bit ENDX de la voz pedida y, si todavia esta sonando, devuelve
+--- -AUDSRV_ERR_NO_MORE_CHANNELS sin reproducir nada:
+---
+---     if (ch >= 0 && ch < 24) {
+---         endx = sceSdGetSwitch(SD_CORE_1 | SD_SWITCH_ENDX);
+---         if (!(endx & (1 << ch))) return -AUDSRV_ERR_NO_MORE_CHANNELS;
+---
+--- Con las muestras de origen, de 0,18 s, hacia falta moverse muy deprisa para notarlo.
+--- Cuanto mas largas son las muestras, mas se pisan.
+---
+--- La voz 2 es la musica y la 3 las intros, asi que los sonidos del menu van de la 4 en
+--- adelante. El volumen hay que ponerlo en TODAS: audsrv_adpcm_init deja las 24 voces a
+--- 0x3fff, de modo que una voz a la que nadie le baja el volumen suena al maximo.
+SFX_CANALES = {}
+SFX_VOCES = {1, 4, 5, 6, 7}
+
+function SFX_VOZ(sonido, canal)
+	if sonido ~= nil and SFX_CANALES[sonido] ~= nil then return SFX_CANALES[sonido] end
+	return canal
+end
+
+function SFX_VOLUMEN(volumen)
+	for i = 1, #SFX_VOCES do
+		pcall(Sound.setADPCMVolume, SFX_VOCES[i], volumen)
+	end
+end
+
+if S_MOVER ~= nil then SFX_CANALES[S_MOVER] = 4 end
+if S_EJECUTAR ~= nil then SFX_CANALES[S_EJECUTAR] = 5 end
+if S_CANCELAR ~= nil then SFX_CANALES[S_CANCELAR] = 6 end
+if S_NETX ~= nil then SFX_CANALES[S_NETX] = 7 end
 
 --- Cargar variables y configuraciones. -------------------------------------------------
 require("System/language")

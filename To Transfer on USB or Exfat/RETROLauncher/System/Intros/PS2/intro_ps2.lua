@@ -45,7 +45,7 @@ function ps2_startup()
 			mostrar_ani, ini_ani, ini_ani_cont = true, true, 0
 			-- Reproducir sonido de inicio para PlayStation 2. --------------------------
 			Sound.setADPCMVolume(2, 0)
-			Sound.setADPCMVolume(1, 0)
+			SFX_VOLUMEN(0)
 			Sound.setADPCMVolume(3, 60)
 			if ps2_sfx ~= nil then Sound.playADPCM(3, ps2_sfx) end
 		end

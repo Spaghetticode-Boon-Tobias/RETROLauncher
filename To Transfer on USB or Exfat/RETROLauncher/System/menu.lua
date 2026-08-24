@@ -136,17 +136,12 @@ function dibujar_indicadores()
 
 	-- Indicadores en listas. -----------------------------------------------------------
 	if #LISTAS.ROMS >= 1 then
-		-- Cambio de arte. --------------------------------------------------------------
+		-- Menu del juego. TRIANGULO ya no intercambia el arte -- eso es ahora una
+		-- entrada del menu -- asi que el indicador dice "Menu" y no "Change art".
+		-- Los rotulos de CIRCULO+TRIANGULO desaparecen tambien: esos ajustes estan
+		-- dentro del menu, no hace falta anunciar una combinacion para llegar a ellos.
 		if CONTROL.CUSTOM_BUTTON_T == true then
-			if Pads.check(PAD, PAD_CIRCLE) and (LISTAS.IDENTIDAD == 14 or LISTAS.IDENTIDAD == 15) 
-			and string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) ~= ".elf" 
-			and string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) ~= ".cue" then
-				dibujar_indicador(CONTROL.X_BUTTON_T, CONTROL.Y_BUTTON_T, message[7], PAD_IMG.TRIANGLE, 25, 25, 1, true)
-			elseif Pads.check(PAD, PAD_CIRCLE) and LISTAS.IDENTIDAD == 13 then
-				dibujar_indicador(CONTROL.X_BUTTON_T, CONTROL.Y_BUTTON_T, message[9], PAD_IMG.TRIANGLE, 25, 25, 1, true)
-			else
-				dibujar_indicador(CONTROL.X_BUTTON_T, CONTROL.Y_BUTTON_T, message[3], PAD_IMG.TRIANGLE, 25, 25, 1, true)
-			end
+			dibujar_indicador(CONTROL.X_BUTTON_T, CONTROL.Y_BUTTON_T, "Game Menu", PAD_IMG.TRIANGLE, 25, 25, 1, true)
 		end
 
 		-- Arte a pantalla completa. ----------------------------------------------------
@@ -269,7 +264,20 @@ end
 function run_game()
 	repro_sfx(S_EJECUTAR, 1, false, nil)
 	local alt = false
-	if (((Pads.check(PAD, PAD_CROSS) and Pads.check(PAD, PAD_CIRCLE)) or OPCIONES.RUN_DEFAULT == 1) and (LISTAS.IDENTIDAD == 1 or (LISTAS.IDENTIDAD >= 4 and LISTAS.IDENTIDAD <= 6) or LISTAS.IDENTIDAD == 13 or LISTAS.IDENTIDAD == 15)) then
+	-- Una ISO de PS2 no arranca nunca sin pasar por el menu de lanzamiento.
+	--
+	-- Una partida de PS2 se guarda en una tarjeta, y cual sea esa tarjeta decide si la
+	-- partida sigue ahi manana. Lanzar primero y descubrir despues en que tarjeta se ha
+	-- guardado no es una opcion: el menu se abre siempre, dice de que fichero sale la
+	-- partida y con que lanzador arranca, y solo entonces se lanza.
+	if LISTAS.IDENTIDAD == 15 and menu_lanzamiento ~= nil
+	   and string.lower(string.sub(LISTAS.ROMS[LISTAS.INDICE], -4)) == ".iso" then
+		if menu_lanzamiento(LISTAS.ROMS[LISTAS.INDICE]) == false then
+			JOYSTICK_LIMITE = control_FPS(1)
+			return
+		end
+		alt = LANZADOR_ES_OPL(LISTAS.ROMS[LISTAS.INDICE])
+	elseif (((Pads.check(PAD, PAD_CROSS) and Pads.check(PAD, PAD_CIRCLE)) or OPCIONES.RUN_DEFAULT == 1) and (LISTAS.IDENTIDAD == 1 or (LISTAS.IDENTIDAD >= 4 and LISTAS.IDENTIDAD <= 6) or LISTAS.IDENTIDAD == 13)) then
 		alt = alt_run(LISTAS.IDENTIDAD)
 	end
 
@@ -514,7 +522,24 @@ function dibujar_lista(limite, extras, largo_extra)
 				mostrar_lista(espacio_linea, contador, LISTAS.INDICE)
 			elseif (LISTAS.INDICE+contador) <= #LISTAS.ROMS then
 				mostrar_lista(espacio_linea, (LISTAS.INDICE+contador), LISTAS.INDICE+contador)
-			elseif max_lista <= #LISTAS.ROMS-1 and #LISTAS.ROMS >= limite+1 then
+			elseif max_lista <= LISTAS.INDICE-2 then
+				-- La vuelta al principio de la lista.
+				--
+				-- La lista se dibuja desde el juego seleccionado hacia abajo, y al
+				-- llegar al final vuelve al primero. Esta rama es esa vuelta, y estaba
+				-- condicionada a "#LISTAS.ROMS >= limite+1": solo daba la vuelta si
+				-- habia mas juegos que lineas en pantalla.
+				--
+				-- Con una lista mas corta que la pantalla, entonces, NADA de lo que
+				-- estuviera antes del cursor se dibujaba. Con dos juegos de SNES y el
+				-- cursor en el segundo, el primero simplemente no existia: la lista
+				-- decia "2 found" y mostraba uno. Con el cursor en el primero se veian
+				-- los dos, que es lo que hacia el asunto desconcertante.
+				--
+				-- El limite correcto no tiene que ver con el tamano de la pantalla sino
+				-- con el cursor: se vuelve al principio hasta llegar al juego anterior
+				-- al seleccionado, y ni uno mas. Asi se dibujan todos y ninguno dos
+				-- veces, tanto si la lista cabe en pantalla como si no.
 				max_lista = max_lista+1
 				mostrar_lista(espacio_linea, max_lista, max_lista)
 			end
@@ -657,15 +682,13 @@ function dibujar()
 		LISTAS.MOSTRAR = 0-CONTROL.FPS
 	end
 
-	-- Intercambiar arte. ---------------------------------------------------------------
-	if Pads.check(PAD, PAD_TRIANGLE) and CONTROL.JOYSTICK_ON == false and LISTAS.MOSTRAR >= LISTAS.ART_LIMITE then
-		if LISTAS.SCREENSHOT_ON == false then
-			LISTAS.SCREENSHOT_ON = true
-		else
-			LISTAS.SCREENSHOT_ON = false
-		end
-		JOYSTICK_LIMITE = control_FPS(1)
-		repro_sfx(S_CANCELAR, 1, true, nil)
+	-- Menu del juego. TRIANGULO abria solo el intercambio de arte; ahora abre una
+	-- lista donde ese intercambio es una entrada mas, junto al borrado y a los
+	-- ajustes del sistema en curso. Nada se pierde y todo queda a la vista.
+	if Pads.check(PAD, PAD_TRIANGLE) and CONTROL.JOYSTICK_ON == false
+	   and LISTAS.ROMS ~= nil and #LISTAS.ROMS >= 1 then
+		repro_sfx(S_EJECUTAR, 1, false, nil)
+		menu_juego()
 	end
 
 	-- Mostrar arte a pantalla completa. ------------------------------------------------

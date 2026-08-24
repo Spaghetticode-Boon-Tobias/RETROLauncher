@@ -390,3 +390,191 @@ Also:
 - **`Roms/!Retrolauncher/`** holds shared backgrounds and fonts.
 - Artwork and titles are always written to the boot device, whatever the drive
   the game is on, so there is only ever one library of images to maintain.
+
+---
+
+## 16. Games missing from short lists
+
+`dibujar_lista` paints the selected game at the top, then the ones after it,
+then wraps round to the beginning. The wrap was gated on the size of the
+screen:
+
+```lua
+elseif max_lista <= #LISTAS.ROMS-1 and #LISTAS.ROMS >= limite+1 then
+```
+
+`limite+1` is the number of rows available, so with a list shorter than the
+screen the wrap never happened and **nothing before the cursor was ever
+drawn**. Two SNES games with the cursor on the second showed one game while the
+boot log said `snes 2 found`; moving the cursor to the first showed both. That
+is what made it baffling — the list appeared to lose a game depending on where
+you had left the cursor.
+
+The bound has nothing to do with the screen and everything to do with the
+cursor: wrap up to the entry before the selected one and stop there.
+
+```lua
+elseif max_lista <= LISTAS.INDICE-2 then
+```
+
+Every entry is drawn, none twice, short list or long. Simulated against both
+versions over list lengths 1..40 and every cursor position: the old condition
+hid entries in 55 combinations.
+
+---
+
+## 17. Launching a PS2 game
+
+A PS2 save lives on a memory card, and which card that is decides whether the
+save is still there tomorrow. Cross on an ISO used to launch straight away, so
+where the save went was something you found out afterwards.
+
+Cross now opens a launch menu, and nothing starts until `Start game`:
+
+```
+Memory card : VMC card  <-> Real PS2 card
+VMC file    : mass1:/VMC/SCES-50295 Dark Cloud Data (Europe).bin
+Launch with : Neutrino  <-> OPL
+Start game
+Cancel
+```
+
+Choosing `VMC card` with no file selected does not launch — the cursor moves to
+the line that is missing instead.
+
+The card picker lists the cards for the current game first, offers
+`See all VMC files` for the rest, and can create one named after the game with a
+number set by left/right: `SCES_502.95_Dark Cloud-1.bin`. The game ID is matched
+**anywhere** in a card's filename, not only as a prefix, so
+`Extermination SCES_502.40 save.bin` is found. `VMC.cfg` keeps one line per
+game and is the memory of the last card used.
+
+There used to be a VMC line in the Triangle menu, another in the PS2 settings,
+and a global default — one decision expressed in three places, none of which
+appeared at the moment of launching. Only the launch menu remains. The two
+lines in the Neutrino and OPL menus are blanked; they were rewritten every
+frame, so clearing the labels alone was not enough, and in the OPL menu
+`menus_valores[1]` was never zeroed, which left an empty label with
+`activated` beside it and still wrote a `$VMC_0=` line into the generated
+config.
+
+---
+
+## 18. Sound
+
+**One voice for four sounds.** Every menu sound played on SPU2 voice 1 — the
+166 call sites of `repro_sfx` all pass `1`. audsrv will not mix two samples
+into one voice:
+
+```c
+if (ch >= 0 && ch < 24) {
+    endx = sceSdGetSwitch(SD_CORE_1 | SD_SWITCH_ENDX);
+    if (!(endx & (1 << ch))) return -AUDSRV_ERR_NO_MORE_CHANNELS;
+```
+
+A sound still playing silently swallowed the next one. With the stock 0.18 s
+samples you had to scroll fast to notice. The voice now comes from the sample —
+move 4, run 5, back 6, next 7 — with music on 2 and the intros on 3. Volume is
+applied to all of them, because `audsrv_adpcm_init` leaves all 24 voices at
+`0x3fff` and a voice nobody turns down plays at full.
+
+**Sounds are replaceable.** `back2/move2/next2/run2.adp` are loaded in
+preference to the originals, which stay in place and load again by themselves if
+a `2` file is deleted.
+
+**Background music.** There was never any: only `music0.adp` shipped, and
+`music0` is the name the track carries when it is switched **off**. The launcher
+only ever looks for `music.adp`.
+
+A size limit worth knowing: `audsrv_load_adpcm` allocates the whole file in one
+block of IOP RAM, and the IOP has 2 MB including modules. A 1.2 MB sample fits
+comfortably in SPU2's 2 MB and still fails to load — silently, with no error and
+nothing in the log. 268 KB loads. `verificar_sonidos` now records each sample
+and its size in the journal, which separates the three failures that used to
+look identical from outside: no file, file too large for the IOP, volume at zero.
+
+---
+
+## 19. The loading screen
+
+The step list was drawn in a black panel from y=8 to y=432, which covered the
+left of the logo and the left-hand column of the credits — Maximus32 and
+krHACKen disappeared behind it. Measuring the opaque pixels of `LOADING.png`
+(640×480, drawn at 640×448) gives, in screen coordinates:
+
+```
+ 10..191   x  24..614   the logo
+231..263   x 212..427   the word LOADING
+331..440   x  12..628   the credits
+```
+
+so exactly two bands are free: 194..226 and 264..328. The origin line goes in
+the first, the steps in the second in two columns, over a translucent veil for
+contrast. Ten steps instead of twenty-two — the full history is in
+`RETROLauncher.log`, which is where it belongs.
+
+Colour convention, used here and meant to hold everywhere: **yellow for the
+internal exFAT drive, cyan for USB**. Scan lines now name the console first,
+`SNES - Exfat` and `SNES - USB`, so the column reads at a glance instead of
+every line starting with the same word.
+
+---
+
+## 20. Theme editor
+
+Three separate-looking faults, one cause. `capturar()` writes
+`Left_X, Left_Y = 1, 1` as a sentinel meaning "this reading has been consumed",
+but a stick at rest reads **0** — the rest of the program assumes it, comparing
+against ±90 everywhere. So `Left_Y ~= 1` was true on every frame:
+
+```lua
+elseif (... or Left_Y ~= 1) and CONTROL.JOYSTICK_ON == false then
+    repro_sfx(S_MOVER, 1, false, nil)
+```
+
+The branch fired continuously — hence the selection sound with no end — and
+because it sits in an `elseif` chain, Cross and R1 never reached their own
+branches, so nothing could be switched on or off. A `PALANCA(value)` helper
+tests the real threshold, and the four sites in the editor use it. The same
+idiom appears seventeen more times where it only picks a repeat speed; those are
+left alone rather than changing the feel of the whole interface.
+
+Two more:
+
+- The R3 indicator was drawn only while it was the selected element, so it could
+  be ON and invisible. Worse, drawing it hid the three indicators at the bottom
+  — exactly when you need to see them to avoid placing R3 on top. Everything
+  switched on is now shown.
+- The preview used a generic icon and the same example word repeated. It now
+  uses the real titles of the current list and the real cover and screenshot,
+  falling back to the placeholders when nothing is loaded. Sizing a list against
+  thirteen identical labels showed nothing about where a real title would be cut.
+
+---
+
+## 21. `WAVtoADP.py`
+
+Converts WAV to `.adp` and back, with the format read from ps2sdk rather than
+inferred. Two things are easy to get wrong, and both were:
+
+- **The header is 16 bytes, not 48.** `audsrv`'s `adpcm.c` does
+  `adpcm->size = size - 16` and DMAs from `buffer + 16`.
+- **Channels are stored contiguously, not interleaved block by block.**
+  `tools/ps2adpcm` encodes one channel fully before starting the next.
+
+A wrong decode still sounds like audio, because the ADPCM filter smooths
+whatever it is fed — adjacent-sample correlation of a bad decode came out
+between 0.61 and 0.99, which proves nothing. What settles it is structure: with
+a 16-byte header every channel begins on a silent block and ends on a `0x07`
+terminator, exactly on the half boundary.
+
+There is no sample rate in the file, only an SPU2 pitch:
+`pitch = round(rate * 4096 / 48000)`.
+
+The encoder tries all 5 filters against all 13 shifts and keeps the lowest
+squared error, quantising in closed loop. Above 8192 samples it switches to a
+numpy path that runs every block in parallel by giving each block the previous
+block's original samples as history instead of the reconstructed ones — 3
+seconds instead of an hour for a two-minute track, at a cost of about 5 dB. The
+output is always decoded again with the exact sequential decoder and the SNR
+printed, so the approximation is measured rather than assumed.
